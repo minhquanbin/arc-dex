@@ -12,6 +12,8 @@ import {
   computeMaxFee,
   ERC20_ABI,
   HOOK_DATA,
+  validateRecipient,
+  validateAmount,
 } from "@/lib/cctp";
 
 type TabType = "swap" | "bridge" | "liquidity" | "payment" | "issuance";
@@ -88,43 +90,51 @@ export default function Home() {
       }
 
       const router = (process.env.NEXT_PUBLIC_ARC_ROUTER || "0x82657177d3b529E008cb766475F53CeFb0d95819") as `0x${string}`;
-      const usdc = process.env.NEXT_PUBLIC_ARC_USDC_ADDRESS as `0x${string}`;
-      const tokenMessenger = process.env.NEXT_PUBLIC_ARC_TOKEN_MESSENGER_V2 as `0x${string}`;
       const minFinality = Number(process.env.NEXT_PUBLIC_MIN_FINALITY_THRESHOLD || "1000");
 
-      if (!router || !usdc || !tokenMessenger) {
-        throw new Error("Contract addresses not configured");
+      if (!router) {
+        throw new Error("Router address not configured");
       }
 
-      setStatus("Validating Router config...");
-      const routerUsdc = (await publicClient.readContract({
+      // ✅ Step 1: Get actual USDC address from Router contract
+      setStatus("Getting contract configuration...");
+      const usdc = (await publicClient.readContract({
         address: router,
         abi: ROUTER_ABI,
         functionName: "usdc",
       })) as `0x${string}`;
-      const routerTm = (await publicClient.readContract({
+      
+      const tokenMessenger = (await publicClient.readContract({
         address: router,
         abi: ROUTER_ABI,
         functionName: "tokenMessengerV2",
       })) as `0x${string}`;
 
-      if (routerUsdc.toLowerCase() !== usdc.toLowerCase()) {
-        throw new Error(`Router.usdc mismatch: onchain=${routerUsdc}, env=${usdc}`);
-      }
-      if (routerTm.toLowerCase() !== tokenMessenger.toLowerCase()) {
-        throw new Error(`Router.tokenMessengerV2 mismatch: onchain=${routerTm}, env=${tokenMessenger}`);
-      }
+      console.log("📝 Contract Config:", { router, usdc, tokenMessenger });
 
-      const amountNum = parseFloat(amountUsdc);
-      if (isNaN(amountNum) || amountNum <= 0) {
-        throw new Error("Please enter a valid amount");
+      // ✅ Step 2: Validate inputs BEFORE any blockchain calls
+      setStatus("Validating inputs...");
+      const amountNum = validateAmount(amountUsdc);
+      
+      // Compute fees early to show user
+      let amount: bigint, maxFee: bigint;
+      try {
+        ({ amount, maxFee } = computeMaxFee(amountUsdc, dest.domain));
+      } catch (feeErr: any) {
+        throw new Error(`Fee calculation failed: ${feeErr.message}`);
       }
-
-      const { amount, maxFee } = computeMaxFee(amountUsdc, dest.domain);
 
       const fee = computeFeeUsdc();
       const totalToApprove = amount + fee;
 
+      console.log("💰 Amounts:", {
+        amount: Number(amount) / 1e6,
+        maxFee: Number(maxFee) / 1e6,
+        serviceFee: Number(fee) / 1e6,
+        total: Number(totalToApprove) / 1e6,
+      });
+
+      // ✅ Step 3: Check balance
       setStatus("Checking USDC balance...");
       const bal = await publicClient.readContract({
         address: usdc,
@@ -133,10 +143,17 @@ export default function Home() {
         args: [address],
       });
 
+      console.log("💵 Balance:", Number(bal) / 1e6, "USDC");
+
       if (bal < totalToApprove) {
-        throw new Error("Số dư USDC không đủ (cần amount + 0.01 USDC fee)");
+        throw new Error(
+          `Số dư USDC không đủ. ` +
+          `Cần: ${Number(totalToApprove) / 1e6} USDC (${Number(amount) / 1e6} bridge + ${Number(fee) / 1e6} service fee). ` +
+          `Có: ${Number(bal) / 1e6} USDC.`
+        );
       }
 
+      // ✅ Step 4: Check and approve if needed
       setStatus("Checking USDC allowance...");
       const allowance = await publicClient.readContract({
         address: usdc,
@@ -144,6 +161,8 @@ export default function Home() {
         functionName: "allowance",
         args: [address, router],
       });
+
+      console.log("✅ Allowance:", Number(allowance) / 1e6, "USDC");
 
       if (allowance < totalToApprove) {
         setStatus("Please approve USDC in your wallet...");
@@ -156,17 +175,28 @@ export default function Home() {
         
         setStatus("Waiting for approval confirmation...");
         await publicClient.waitForTransactionReceipt({ hash: approveHash });
+        console.log("✅ Approved:", approveHash);
       }
 
-      const recipientAddr = (recipient || address).trim();
-      if (!/^0x[a-fA-F0-9]{40}$/.test(recipientAddr)) {
-        throw new Error("Recipient address không hợp lệ");
-      }
+      // ✅ Step 5: Validate recipient
+      const recipientAddr = validateRecipient(recipient || address);
+      const recipientBytes32 = addressToBytes32(recipientAddr);
 
+      console.log("👤 Recipient:", recipientAddr);
+
+      // ✅ Step 6: Build hookData
       const hookData = buildHookDataWithMemo(HOOK_DATA, memo);
 
-      // NOTE: simulateContract chạy ở RPC (không mở ví). Nếu simulate revert thì flow sẽ dừng
-      // và bạn sẽ KHÔNG thấy popup ký. Mặc định tắt simulate để luôn hiện ví ký.
+      console.log("📦 Bridge params:", {
+        amount: amount.toString(),
+        destinationDomain: dest.domain,
+        mintRecipient: recipientBytes32,
+        maxFee: maxFee.toString(),
+        minFinalityThreshold: minFinality,
+        hookData,
+      });
+
+      // ✅ Step 7: Optional simulation (disabled by default to avoid false negatives)
       const enableSimulate = (process.env.NEXT_PUBLIC_ENABLE_SIMULATE || "").toLowerCase() === "true";
       if (enableSimulate) {
         try {
@@ -178,19 +208,21 @@ export default function Home() {
             args: [
               amount,
               dest.domain,
-              addressToBytes32(recipientAddr as `0x${string}`),
+              recipientBytes32,
               maxFee,
               minFinality,
               hookData,
             ],
             account: address,
           });
+          console.log("✅ Simulation passed");
         } catch (simErr: any) {
-          // vẫn cho phép user ký để lấy revert reason onchain nếu muốn
-          console.warn("simulateContract reverted:", simErr);
+          console.warn("⚠️ Simulation failed:", simErr.message);
+          // Don't throw - let user try anyway
         }
       }
 
+      // ✅ Step 8: Execute bridge transaction
       setStatus("Please confirm the bridge transaction in your wallet...");
       const burnHash = await walletClient.writeContract({
         address: router,
@@ -199,23 +231,40 @@ export default function Home() {
         args: [
           amount,
           dest.domain,
-          addressToBytes32(recipientAddr as `0x${string}`),
+          recipientBytes32,
           maxFee,
           minFinality,
           hookData,
         ],
       });
 
+      console.log("🔥 Bridge tx sent:", burnHash);
+
       setStatus("Waiting for transaction confirmation...");
-      await publicClient.waitForTransactionReceipt({ hash: burnHash });
+      const receipt = await publicClient.waitForTransactionReceipt({ hash: burnHash });
       
+      console.log("✅ Bridge tx confirmed:", receipt);
+
       setTxHash(burnHash);
-      setStatus("Bridge transaction successful!");
+      setStatus("Bridge transaction successful! Funds will arrive in 2-5 minutes.");
       setAmountUsdc("");
       setMemo("");
     } catch (e: any) {
-      console.error("Bridge error:", e);
-      setStatus(`Error: ${e?.message || e?.shortMessage || "Transaction failed"}`);
+      console.error("❌ Bridge error:", e);
+      
+      // Better error messages
+      let errorMsg = e?.message || e?.shortMessage || "Transaction failed";
+      
+      // Parse common errors
+      if (errorMsg.includes("insufficient funds")) {
+        errorMsg = "Số dư USDC không đủ để bridge + trả phí gas";
+      } else if (errorMsg.includes("user rejected")) {
+        errorMsg = "Bạn đã từ chối giao dịch";
+      } else if (errorMsg.includes("execution reverted")) {
+        errorMsg = "Contract từ chối giao dịch. Vui lòng kiểm tra lại amount và balance.";
+      }
+      
+      setStatus(`Error: ${errorMsg}`);
     } finally {
       setLoading(false);
     }
@@ -382,16 +431,19 @@ export default function Home() {
                           <input
                             type="number"
                             step="0.01"
-                            min="0"
+                            min="1.5"
                             value={amountUsdc}
                             onChange={(e) => setAmountUsdc(e.target.value)}
-                            placeholder="0.00"
+                            placeholder="Minimum 1.5 USDC"
                             disabled={loading}
                             className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 pr-16 text-gray-900 shadow-sm transition-all focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-200 disabled:cursor-not-allowed disabled:bg-gray-100"
                           />
                           <div className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-semibold text-gray-500">
                             USDC
                           </div>
+                        </div>
+                        <div className="mt-1 text-xs text-gray-500">
+                          Tối thiểu 1.5 USDC (để đủ chi phí bridge)
                         </div>
                       </div>
 
@@ -420,10 +472,10 @@ export default function Home() {
                       {/* Bridge Button */}
                       <button
                         onClick={onBridge}
-                        disabled={loading || isWrongNetwork || !amountUsdc}
+                        disabled={loading || isWrongNetwork || !amountUsdc || parseFloat(amountUsdc) < 1.5}
                         className={[
                           "w-full rounded-xl px-6 py-4 font-semibold text-white shadow-lg transition-all",
-                          loading || isWrongNetwork || !amountUsdc
+                          loading || isWrongNetwork || !amountUsdc || parseFloat(amountUsdc) < 1.5
                             ? "cursor-not-allowed bg-gray-300"
                             : "bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 active:scale-[0.98]",
                         ].join(" ")}
@@ -479,9 +531,10 @@ export default function Home() {
                       <div className="text-xs text-gray-600">
                         <div className="mb-2 font-semibold text-gray-700">📝 Important Notes:</div>
                         <ul className="ml-4 list-disc space-y-1">
-                          <li>Powered by 1992evm</li>
+                          <li>Powered by Circle CCTP</li>
                           <li>No destination gas tokens required</li>
                           <li>Transactions typically complete in 2-5 minutes</li>
+                          <li>Minimum amount: 1.5 USDC (to cover fees)</li>
                         </ul>
                       </div>
                     </div>
@@ -500,7 +553,7 @@ export default function Home() {
         {/* Footer */}
         <div className="mt-8 text-center">
           <div className="inline-flex items-center gap-4 text-xs text-gray-500">
-            <span>Powered by 1992evm</span>
+            <span>Powered by Circle CCTP</span>
             <span>•</span>
             <span>Testnet</span>
             <span>•</span>
@@ -510,7 +563,7 @@ export default function Home() {
               rel="noopener noreferrer"
               className="text-purple-600 hover:text-purple-700 underline"
             >
-              🔗 Chainlink CCIP
+              📚 Documentation
             </a>
           </div>
         </div>
