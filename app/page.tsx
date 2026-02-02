@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { DESTS } from "@/lib/chains";
@@ -131,7 +131,69 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [txHash, setTxHash] = useState<string>("");
 
+  type BridgeHistoryItem = {
+    ts: number;
+    from: `0x${string}`;
+    to: `0x${string}`;
+    txHash: `0x${string}`;
+    memo?: string;
+  };
+
+  const [history, setHistory] = useState<BridgeHistoryItem[]>([]);
+  const [historyPage, setHistoryPage] = useState(0);
+
+  type BridgeHistoryItem = {
+    ts: number;
+    from: `0x${string}`;
+    to: `0x${string}`;
+    txHash: `0x${string}`;
+    memo?: string;
+  };
+
+  const [history, setHistory] = useState<BridgeHistoryItem[]>([]);
+  const [historyPage, setHistoryPage] = useState(0);
+
   const dest = useMemo(() => DESTS.find((d) => d.key === destKey) || DESTS[0], [destKey]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("arc_bridge_history");
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as BridgeHistoryItem[];
+      if (Array.isArray(parsed)) setHistory(parsed);
+    } catch {
+      // ignore
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("arc_bridge_history", JSON.stringify(history.slice(0, 200)));
+    } catch {
+      // ignore
+    }
+  }, [history]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("arc_bridge_history");
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as BridgeHistoryItem[];
+      if (Array.isArray(parsed)) setHistory(parsed);
+    } catch {
+      // ignore
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("arc_bridge_history", JSON.stringify(history.slice(0, 200)));
+    } catch {
+      // ignore
+    }
+  }, [history]);
 
   const expectedChainId = Number(process.env.NEXT_PUBLIC_ARC_CHAIN_ID || 5042002);
   const isWrongNetwork = isConnected && chain?.id !== expectedChainId;
@@ -469,6 +531,17 @@ export default function Home() {
       const receipt = await publicClient.waitForTransactionReceipt({ hash: burnTx });
 
       if (receipt.status === "success") {
+        setHistory((prev) => [
+          {
+            ts: Date.now(),
+            from: address,
+            to: recipientAddr,
+            txHash: burnTx,
+            memo: memo || undefined,
+          },
+          ...prev,
+        ]);
+
         setStatus(
           `Success!\n\n` +
             `Amount: ${Number(amount) / 1e6} USDC\n` +
@@ -490,16 +563,60 @@ export default function Home() {
 
   return (
     <main className="arc-app min-h-screen">
-      <div className="container mx-auto max-w-3xl px-4 py-6">
+      <div className="container mx-auto max-w-4xl px-4 py-6">
         {/* Header */}
         <div className="mb-8 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <ArcLogoIcon className="h-10 w-10" />
-            <h1 className="bg-gradient-to-r from-emerald-500 via-sky-500 to-indigo-500 bg-clip-text text-4xl font-bold text-transparent">
+            <h1 className="bg-gradient-to-r from-[#ff7582] to-[#725a7a] bg-clip-text text-4xl font-bold text-transparent">
               Arc Bridge
             </h1>
           </div>
-          <ConnectButton />
+          <ConnectButton.Custom>
+            {({ account, chain, openAccountModal, openChainModal, openConnectModal, mounted }) => {
+              const ready = mounted;
+              const connected = ready && account && chain;
+
+              if (!ready) return null;
+
+              if (!connected) {
+                return (
+                  <button
+                    onClick={openConnectModal}
+                    className="rounded-xl bg-[#ff7582] px-4 py-2 text-sm font-semibold text-white shadow hover:bg-[#ff5f70]"
+                    type="button"
+                  >
+                    Connect Wallet
+                  </button>
+                );
+              }
+
+              return (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={openChainModal}
+                    type="button"
+                    className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm hover:bg-gray-50"
+                  >
+                    {chain?.name}
+                  </button>
+
+                  <button
+                    onClick={openAccountModal}
+                    type="button"
+                    className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm hover:bg-gray-50"
+                  >
+                    <span className="flex items-center gap-1">
+                      <span>{account?.displayBalance}</span>
+                      <UsdcIcon className="h-4 w-4" />
+                    </span>
+                    <span className="text-gray-400">|</span>
+                    <span>{account?.displayName}</span>
+                  </button>
+                </div>
+              );
+            }}
+          </ConnectButton.Custom>
         </div>
 
         {/* Wrong Network Banner */}
@@ -532,7 +649,7 @@ export default function Home() {
                   onClick={() => setTab(t)}
                   disabled={t !== "bridge"}
                   className={[
-                    "flex-1 px-6 py-4 text-sm font-semibold transition-all",
+                    "flex-1 px-6 py-4 text-lg font-semibold transition-all",
                     tab === t
                       ? "border-b-2 border-purple-600 bg-white text-purple-600"
                       : t === "bridge"
@@ -655,7 +772,7 @@ export default function Home() {
                       </div>
 
                       {/* Info Box */}
-                      <div className="rounded-xl bg-gradient-to-r from-purple-50 to-blue-50 p-4">
+                      <div className="rounded-xl bg-gradient-to-r from-[#fff0f2] to-[#f3eef6] p-5">
                         <div className="space-y-2 text-sm">
                           <div className="flex justify-between">
                             <span className="text-gray-600">Bridge amount</span>
@@ -694,7 +811,7 @@ export default function Home() {
                           "w-full rounded-xl px-6 py-4 font-semibold text-white shadow-lg transition-all",
                           loading || isWrongNetwork || !amountUsdc || parseFloat(amountUsdc) < 5
                             ? "cursor-not-allowed bg-gray-300"
-                            : "bg-gradient-to-r from-emerald-500 via-sky-500 to-indigo-500 hover:from-emerald-600 hover:via-sky-600 hover:to-indigo-600 active:scale-[0.98]",
+                            : "bg-gradient-to-r from-[#ff7582] to-[#725a7a] hover:from-[#ff5f70] hover:to-[#664f6e] active:scale-[0.98]",
                         ].join(" ")}
                       >
                         {loading ? (
@@ -747,6 +864,116 @@ export default function Home() {
                     <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
                       <div className="text-xs text-gray-600">Donate: 0xA87Bd559fd6F2646225AcE941bA6648Ec1BAA9AF</div>
                     </div>
+
+                    {/* Bridge History */}
+                    <div className="rounded-xl border border-gray-200 bg-white p-4">
+                      <div className="mb-3 flex items-center justify-between">
+                        <div className="text-sm font-semibold text-gray-900">Bridge history</div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setHistoryPage((p) => Math.max(0, p - 1))}
+                            disabled={historyPage === 0}
+                            className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Prev
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setHistoryPage((p) => p + 1)}
+                            disabled={(historyPage + 1) * 10 >= history.length}
+                            className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Next
+                          </button>
+                        </div>
+                      </div>
+
+                      {history.length === 0 ? (
+                        <div className="text-sm text-gray-500">No transactions yet.</div>
+                      ) : (
+                        <div className="space-y-2">
+                          {history.slice(historyPage * 10, historyPage * 10 + 10).map((h) => (
+                            <div key={`${h.txHash}-${h.ts}`} className="rounded-lg bg-gray-50 p-3">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="text-xs text-gray-600">
+                                  {new Date(h.ts).toLocaleString()}
+                                </div>
+                                <a
+                                  href={`https://testnet.arcscan.app/tx/${h.txHash}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-xs font-semibold text-[#725a7a] underline"
+                                >
+                                  TX
+                                </a>
+                              </div>
+                              <div className="mt-1 text-sm text-gray-900">
+                                <span className="font-semibold">{h.from.slice(0, 6)}…{h.from.slice(-4)}</span>
+                                <span className="mx-2 text-gray-400">→</span>
+                                <span className="font-semibold">{h.to.slice(0, 6)}…{h.to.slice(-4)}</span>
+                              </div>
+                              {h.memo && <div className="mt-1 text-xs text-gray-600">Message: {h.memo}</div>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Bridge History */}
+                    <div className="rounded-xl border border-gray-200 bg-white p-4">
+                      <div className="mb-3 flex items-center justify-between">
+                        <div className="text-sm font-semibold text-gray-900">Bridge history</div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setHistoryPage((p) => Math.max(0, p - 1))}
+                            disabled={historyPage === 0}
+                            className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Prev
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setHistoryPage((p) => p + 1)}
+                            disabled={(historyPage + 1) * 10 >= history.length}
+                            className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Next
+                          </button>
+                        </div>
+                      </div>
+
+                      {history.length === 0 ? (
+                        <div className="text-sm text-gray-500">No transactions yet.</div>
+                      ) : (
+                        <div className="space-y-2">
+                          {history.slice(historyPage * 10, historyPage * 10 + 10).map((h) => (
+                            <div key={`${h.txHash}-${h.ts}`} className="rounded-lg bg-gray-50 p-3">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="text-xs text-gray-600">
+                                  {new Date(h.ts).toLocaleString()}
+                                </div>
+                                <a
+                                  href={`https://testnet.arcscan.app/tx/${h.txHash}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-xs font-semibold text-[#725a7a] underline"
+                                >
+                                  TX
+                                </a>
+                              </div>
+                              <div className="mt-1 text-sm text-gray-900">
+                                <span className="font-semibold">{h.from.slice(0, 6)}…{h.from.slice(-4)}</span>
+                                <span className="mx-2 text-gray-400">→</span>
+                                <span className="font-semibold">{h.to.slice(0, 6)}…{h.to.slice(-4)}</span>
+                              </div>
+                              {h.memo && <div className="mt-1 text-xs text-gray-600">Message: {h.memo}</div>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </>
                 ) : (
                   <div className="py-12 text-center">
@@ -770,18 +997,18 @@ export default function Home() {
 
       <style jsx global>{`
         :root {
-          --arc-c1: #24d6b5;
-          --arc-c2: #5ab8ff;
-          --arc-c3: #7c5cff;
+          --arc-c1: #ff7582;
+          --arc-c2: #725a7a;
+          --arc-c3: #725a7a;
         }
 
         .arc-app {
           font-family: "Space Grotesk", Arial, sans-serif;
           background:
-            radial-gradient(900px 500px at 15% 10%, rgba(36, 214, 181, 0.20), transparent 60%),
-            radial-gradient(800px 420px at 85% 20%, rgba(90, 184, 255, 0.22), transparent 60%),
-            radial-gradient(900px 520px at 55% 95%, rgba(124, 92, 255, 0.18), transparent 60%),
-            linear-gradient(135deg, rgba(255, 255, 255, 1) 0%, rgba(245, 250, 255, 1) 45%, rgba(248, 245, 255, 1) 100%);
+            radial-gradient(900px 500px at 15% 10%, rgba(255, 117, 130, 0.22), transparent 60%),
+            radial-gradient(800px 420px at 85% 20%, rgba(114, 90, 122, 0.22), transparent 60%),
+            radial-gradient(900px 520px at 55% 95%, rgba(114, 90, 122, 0.18), transparent 60%),
+            linear-gradient(135deg, rgba(255, 255, 255, 1) 0%, rgba(255, 245, 247, 1) 45%, rgba(246, 241, 248, 1) 100%);
         }
 
         /* Optional: if you upload a real Space Grotesk woff2 to /public/fonts/, this will load it locally */
