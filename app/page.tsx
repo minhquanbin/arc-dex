@@ -53,6 +53,7 @@ const FEE_USDC = process.env.NEXT_PUBLIC_FEE_USDC || "0.01";
 type TabType = "swap" | "bridge" | "liquidity" | "payment" | "issuance";
 
 export default function Home() {
+  // Font: Space Grotesk (upload local woff2 to /public/fonts/ if you want the real font file)
   const { address, isConnected, chain } = useAccount();
   const publicClient = usePublicClient();
   const { data: walletClient } = useWalletClient();
@@ -425,12 +426,13 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-pink-50">
-      <div className="container mx-auto max-w-6xl px-4 py-8">
+    <main className="arc-app min-h-screen">
+      <div className="container mx-auto max-w-3xl px-4 py-6">
         {/* Header */}
         <div className="mb-8 flex items-center justify-between">
-          <div>
-            <h1 className="bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-4xl font-bold text-transparent">
+          <div className="flex items-center gap-3">
+            <img src="/arc-logo.svg" alt="ARC" className="h-10 w-10" />
+            <h1 className="bg-gradient-to-r from-emerald-500 via-sky-500 to-indigo-500 bg-clip-text text-4xl font-bold text-transparent">
               Arc Bridge
             </h1>
           </div>
@@ -483,7 +485,7 @@ export default function Home() {
           </div>
 
           {/* Content */}
-          <div className="p-8">
+          <div className="p-5">
             {tab === "bridge" && (
               <div className="space-y-6">
                 {isConnected ? (
@@ -582,8 +584,8 @@ export default function Home() {
                             disabled={loading}
                             className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 pr-16 text-gray-900 shadow-sm transition-all focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-200 disabled:cursor-not-allowed disabled:bg-gray-100"
                           />
-                          <div className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-semibold text-gray-500">
-                            USDC
+                          <div className="absolute right-4 top-1/2 -translate-y-1/2">
+                            <img src="/usdc.svg" alt="USDC" className="h-6 w-6" />
                           </div>
                         </div>
                         <div className="mt-1 text-xs text-gray-500">Suggested minimum: 5 USDC</div>
@@ -594,11 +596,17 @@ export default function Home() {
                         <div className="space-y-2 text-sm">
                           <div className="flex justify-between">
                             <span className="text-gray-600">Bridge amount</span>
-                            <span className="font-semibold text-gray-900">{amountUsdc || "0"} USDC</span>
+                            <span className="flex items-center gap-2 font-semibold text-gray-900">
+                              {amountUsdc || "0"}
+                              <img src="/usdc.svg" alt="USDC" className="h-4 w-4" />
+                            </span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-gray-600">Service fee</span>
-                            <span className="font-semibold text-gray-900">{FEE_USDC} USDC</span>
+                            <span className="flex items-center gap-2 font-semibold text-gray-900">
+                              {FEE_USDC}
+                              <img src="/usdc.svg" alt="USDC" className="h-4 w-4" />
+                            </span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-gray-600">From</span>
@@ -623,7 +631,7 @@ export default function Home() {
                           "w-full rounded-xl px-6 py-4 font-semibold text-white shadow-lg transition-all",
                           loading || isWrongNetwork || !amountUsdc || parseFloat(amountUsdc) < 5
                             ? "cursor-not-allowed bg-gray-300"
-                            : "bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 active:scale-[0.98]",
+                            : "bg-gradient-to-r from-emerald-500 via-sky-500 to-indigo-500 hover:from-emerald-600 hover:via-sky-600 hover:to-indigo-600 active:scale-[0.98]",
                         ].join(" ")}
                       >
                         {loading ? (
@@ -674,7 +682,7 @@ export default function Home() {
 
                     {/* Donate */}
                     <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
-                      <div className="text-xs text-gray-600">donate: 0xA87Bd559fd6F2646225AcE941bA6648Ec1BAA9AF</div>
+                      <div className="text-xs text-gray-600">Donate: 0xA87Bd559fd6F2646225AcE941bA6648Ec1BAA9AF</div>
                     </div>
                   </>
                 ) : (
@@ -696,6 +704,32 @@ export default function Home() {
           </div>
         </div>
       </div>
+
+      <style jsx global>{`
+        :root {
+          --arc-c1: #24d6b5;
+          --arc-c2: #5ab8ff;
+          --arc-c3: #7c5cff;
+        }
+
+        .arc-app {
+          font-family: "Space Grotesk", Arial, sans-serif;
+          background:
+            radial-gradient(900px 500px at 15% 10%, rgba(36, 214, 181, 0.20), transparent 60%),
+            radial-gradient(800px 420px at 85% 20%, rgba(90, 184, 255, 0.22), transparent 60%),
+            radial-gradient(900px 520px at 55% 95%, rgba(124, 92, 255, 0.18), transparent 60%),
+            linear-gradient(135deg, rgba(255, 255, 255, 1) 0%, rgba(245, 250, 255, 1) 45%, rgba(248, 245, 255, 1) 100%);
+        }
+
+        /* Optional: if you upload a real Space Grotesk woff2 to /public/fonts/, this will load it locally */
+        @font-face {
+          font-family: "Space Grotesk";
+          src: url("/fonts/SpaceGrotesk-VariableFont_wght.woff2") format("woff2");
+          font-weight: 300 700;
+          font-style: normal;
+          font-display: swap;
+        }
+      `}</style>
     </main>
   );
 }
