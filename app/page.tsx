@@ -165,21 +165,31 @@ export default function Home() {
 
       const hookData = buildHookDataWithMemo(HOOK_DATA, memo);
 
-      setStatus("Simulating transaction...");
-      await publicClient.simulateContract({
-        address: router,
-        abi: ROUTER_ABI,
-        functionName: "bridge",
-        args: [
-          amount,
-          dest.domain,
-          addressToBytes32(recipientAddr as `0x${string}`),
-          maxFee,
-          minFinality,
-          hookData,
-        ],
-        account: address,
-      });
+      // NOTE: simulateContract chạy ở RPC (không mở ví). Nếu simulate revert thì flow sẽ dừng
+      // và bạn sẽ KHÔNG thấy popup ký. Mặc định tắt simulate để luôn hiện ví ký.
+      const enableSimulate = (process.env.NEXT_PUBLIC_ENABLE_SIMULATE || "").toLowerCase() === "true";
+      if (enableSimulate) {
+        try {
+          setStatus("Simulating transaction...");
+          await publicClient.simulateContract({
+            address: router,
+            abi: ROUTER_ABI,
+            functionName: "bridge",
+            args: [
+              amount,
+              dest.domain,
+              addressToBytes32(recipientAddr as `0x${string}`),
+              maxFee,
+              minFinality,
+              hookData,
+            ],
+            account: address,
+          });
+        } catch (simErr: any) {
+          // vẫn cho phép user ký để lấy revert reason onchain nếu muốn
+          console.warn("simulateContract reverted:", simErr);
+        }
+      }
 
       setStatus("Please confirm the bridge transaction in your wallet...");
       const burnHash = await walletClient.writeContract({
