@@ -5,12 +5,13 @@ import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { DESTS } from "@/lib/chains";
 import {
+  ROUTER_ABI,
   addressToBytes32,
+  buildHookDataWithMemo,
+  computeFeeUsdc,
   computeMaxFee,
-  DEST_CALLER_ZERO,
   ERC20_ABI,
   HOOK_DATA,
-  TOKEN_MESSENGER_V2_ABI,
 } from "@/lib/cctp";
 
 type TabType = "swap" | "bridge" | "liquidity" | "payment" | "issuance";
@@ -23,6 +24,8 @@ export default function Home() {
   const [tab, setTab] = useState<TabType>("bridge");
   const [destKey, setDestKey] = useState(DESTS[0].key);
   const [amountUsdc, setAmountUsdc] = useState("");
+  const [recipient, setRecipient] = useState<string>("");
+  const [memo, setMemo] = useState<string>("");
   const [status, setStatus] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [txHash, setTxHash] = useState<string>("");
@@ -84,11 +87,11 @@ export default function Home() {
         throw new Error(`Please switch to ARC Testnet (Chain ID: ${expectedChainId})`);
       }
 
-      const tokenMessenger = process.env.NEXT_PUBLIC_ARC_TOKEN_MESSENGER_V2 as `0x${string}`;
+      const router = process.env.NEXT_PUBLIC_ARC_ROUTER as `0x${string}`;
       const usdc = process.env.NEXT_PUBLIC_ARC_USDC_ADDRESS as `0x${string}`;
       const minFinality = Number(process.env.NEXT_PUBLIC_MIN_FINALITY_THRESHOLD || "1000");
 
-      if (!tokenMessenger || !usdc) {
+      if (!router || !usdc) {
         throw new Error("Contract addresses not configured");
       }
 
@@ -99,41 +102,49 @@ export default function Home() {
 
       const { amount, maxFee } = computeMaxFee(amountUsdc);
 
+      const fee = computeFeeUsdc();
+      const totalToApprove = amount + fee;
+
       setStatus("Checking USDC allowance...");
       const allowance = await publicClient.readContract({
         address: usdc,
         abi: ERC20_ABI,
         functionName: "allowance",
-        args: [address, tokenMessenger],
+        args: [address, router],
       });
 
-      if (allowance < amount) {
+      if (allowance < totalToApprove) {
         setStatus("Please approve USDC in your wallet...");
         const approveHash = await walletClient.writeContract({
           address: usdc,
           abi: ERC20_ABI,
           functionName: "approve",
-          args: [tokenMessenger, amount],
+          args: [router, totalToApprove],
         });
         
         setStatus("Waiting for approval confirmation...");
         await publicClient.waitForTransactionReceipt({ hash: approveHash });
       }
 
+      const recipientAddr = (recipient || address).trim();
+      if (!/^0x[a-fA-F0-9]{40}$/.test(recipientAddr)) {
+        throw new Error("Recipient address không hợp lệ");
+      }
+
+      const hookData = buildHookDataWithMemo(HOOK_DATA, memo);
+
       setStatus("Please confirm the bridge transaction in your wallet...");
       const burnHash = await walletClient.writeContract({
-        address: tokenMessenger,
-        abi: TOKEN_MESSENGER_V2_ABI,
-        functionName: "depositForBurnWithHook",
+        address: router,
+        abi: ROUTER_ABI,
+        functionName: "bridge",
         args: [
           amount,
           dest.domain,
-          addressToBytes32(address),
-          usdc,
-          DEST_CALLER_ZERO,
+          addressToBytes32(recipientAddr as `0x${string}`),
           maxFee,
           minFinality,
-          HOOK_DATA,
+          hookData,
         ],
       });
 
@@ -143,6 +154,8 @@ export default function Home() {
       setTxHash(burnHash);
       setStatus("Bridge transaction successful!");
       setAmountUsdc("");
+      setMemo("");
+      setMemo("");
     } catch (e: any) {
       console.error("Bridge error:", e);
       setStatus(`Error: ${e?.message || e?.shortMessage || "Transaction failed"}`);
@@ -270,6 +283,72 @@ export default function Home() {
                         </select>
                       </div>
 
+                      {/* Recipient */}
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-gray-700">
+                          Recipient (wallet B)
+                        </label>
+                        <input
+                          type="text"
+                          value={recipient}
+                          onChange={(e) => setRecipient(e.target.value)}
+                          placeholder={address || "0x..."}
+                          disabled={loading}
+                          className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 shadow-sm transition-all focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-200 disabled:cursor-not-allowed disabled:bg-gray-100"
+                        />
+                        <div className="mt-1 text-xs text-gray-500">
+                          Để trống = gửi về ví đang connect.
+                        </div>
+                      </div>
+
+                      {/* Memo */}
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-gray-700">
+                          Memo (optional, max 128 bytes)
+                        </label>
+                        <input
+                          type="text"
+                          value={memo}
+                          onChange={(e) => setMemo(e.target.value)}
+                          placeholder="Nhập nội dung chuyển (tùy chọn)"
+                          disabled={loading}
+                          className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 shadow-sm transition-all focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-200 disabled:cursor-not-allowed disabled:bg-gray-100"
+                        />
+                      </div>
+
+                      {/* Recipient */}
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-gray-700">
+                          Recipient (wallet B)
+                        </label>
+                        <input
+                          type="text"
+                          value={recipient}
+                          onChange={(e) => setRecipient(e.target.value)}
+                          placeholder={address || "0x..."}
+                          disabled={loading}
+                          className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 shadow-sm transition-all focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-200 disabled:cursor-not-allowed disabled:bg-gray-100"
+                        />
+                        <div className="mt-1 text-xs text-gray-500">
+                          Để trống = gửi về ví đang connect.
+                        </div>
+                      </div>
+
+                      {/* Memo */}
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-gray-700">
+                          Memo (optional, max 128 bytes)
+                        </label>
+                        <input
+                          type="text"
+                          value={memo}
+                          onChange={(e) => setMemo(e.target.value)}
+                          placeholder="Nhập nội dung chuyển (tùy chọn)"
+                          disabled={loading}
+                          className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 shadow-sm transition-all focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-200 disabled:cursor-not-allowed disabled:bg-gray-100"
+                        />
+                      </div>
+
                       {/* Amount */}
                       <div>
                         <label className="mb-2 block text-sm font-medium text-gray-700">
@@ -295,6 +374,14 @@ export default function Home() {
                       {/* Info Box */}
                       <div className="rounded-xl bg-gradient-to-r from-purple-50 to-blue-50 p-4">
                         <div className="space-y-2 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">Service fee</span>
+                            <span className="font-semibold text-gray-900">{process.env.NEXT_PUBLIC_FEE_USDC || "0.01"} USDC</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">Service fee</span>
+                            <span className="font-semibold text-gray-900">{process.env.NEXT_PUBLIC_FEE_USDC || "0.01"} USDC</span>
+                          </div>
                           <div className="flex justify-between">
                             <span className="text-gray-600">From</span>
                             <span className="font-semibold text-gray-900">ARC Testnet</span>

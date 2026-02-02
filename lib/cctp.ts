@@ -51,3 +51,39 @@ export const HOOK_DATA =
   "0x636374702d666f72776172640000000000000000000000000000000000000000" as const; // cctp-forward + version/len
 
 export const DEST_CALLER_ZERO = addressToBytes32("0x0000000000000000000000000000000000000000");
+
+export const ROUTER_ABI = [
+  {
+    type: "function",
+    name: "bridge",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "amount", type: "uint256" },
+      { name: "destinationDomain", type: "uint32" },
+      { name: "mintRecipient", type: "bytes32" },
+      { name: "maxFee", type: "uint256" },
+      { name: "minFinalityThreshold", type: "uint32" },
+      { name: "hookData", type: "bytes" },
+    ],
+    outputs: [{ name: "nonce", type: "uint64" }],
+  },
+] as const;
+
+export function computeFeeUsdc() {
+  const feeStr = process.env.NEXT_PUBLIC_FEE_USDC || "0.01";
+  return parseUnits(feeStr, 6);
+}
+
+export function buildHookDataWithMemo(baseHookData: `0x${string}`, memo?: string) {
+  const m = (memo ?? "").trim();
+  if (!m) return baseHookData;
+
+  const bytes = new TextEncoder().encode(m); // UTF-8
+  if (bytes.length > 128) throw new Error("Memo tối đa 128 bytes (UTF-8).");
+
+  const hex = Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+
+  return (baseHookData + hex) as `0x${string}`;
+}
