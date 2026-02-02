@@ -17,6 +17,16 @@ import {
 } from "@/lib/cctp";
 import { parseUnits } from "viem";
 
+const TOKEN_MESSENGER_V2_FEE_ABI = [
+  {
+    type: "function",
+    name: "getMinFeeAmount",
+    stateMutability: "view",
+    inputs: [{ name: "amount", type: "uint256" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+] as const;
+
 const FEE_RECEIVER = (process.env.NEXT_PUBLIC_FEE_COLLECTOR ||
   "0xA87Bd559fd6F2646225AcE941bA6648Ec1BAA9AF") as `0x${string}`;
 const FEE_USDC = process.env.NEXT_PUBLIC_FEE_USDC || "0.01";
@@ -158,9 +168,38 @@ export default function Home() {
         throw new Error(`Lỗi tính phí: ${feeErr.message}`);
       }
 
+      // ✅ Circle rule: maxFee must be >= TokenMessengerV2.getMinFeeAmount(amount) (or burn reverts)
+      // We read tokenMessengerV2 from router to avoid hardcoding.
+      setStatus("Đang đọc minFee từ TokenMessengerV2...");
+      let minProtocolFee = 0n;
+      try {
+        const tokenMessenger = (await publicClient.readContract({
+          address: router,
+          abi: ROUTER_ABI,
+          functionName: "tokenMessengerV2",
+        })) as `0x${string}`;
+
+        minProtocolFee = (await publicClient.readContract({
+          address: tokenMessenger,
+          abi: TOKEN_MESSENGER_V2_FEE_ABI,
+          functionName: "getMinFeeAmount",
+          args: [amount],
+        })) as bigint;
+
+        if (minProtocolFee > maxFee) {
+          console.warn(
+            `⚠️ maxFee (${Number(maxFee) / 1e6}) < minProtocolFee (${Number(minProtocolFee) / 1e6}). Bumping maxFee.`
+          );
+          maxFee = minProtocolFee;
+        }
+      } catch (minFeeErr: any) {
+        console.warn("⚠️ Không đọc được getMinFeeAmount, tiếp tục dùng maxFee hiện tại:", minFeeErr);
+      }
+
       console.log("💰 Amounts:", {
         amount: Number(amount) / 1e6,
         maxFee: Number(maxFee) / 1e6,
+        minProtocolFee: Number(minProtocolFee) / 1e6,
         serviceFee: Number(feeAmount) / 1e6,
       });
 
