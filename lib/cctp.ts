@@ -35,17 +35,23 @@ export const ERC20_ABI = [
   ], outputs: [{ name: "", type: "bool" }] },
 ] as const;
 
-export function computeMaxFee(amountUsdc: string) {
+export function computeMaxFee(amountUsdc: string, destinationDomain?: number) {
   const amount = parseUnits(amountUsdc, 6);
-  const maxFeeBps = BigInt(process.env.NEXT_PUBLIC_MAX_FEE_BPS || "2000");
+
+  // Forwarding Service fee (Circle docs): Ethereum $1.25, all other chains $0.20.
+  const baseFeeUsdc = destinationDomain === 0 ? "1.25" : "0.2";
+  const baseFee = parseUnits(baseFeeUsdc, 6);
+
+  // buffer mặc định 10% (1000 bps). Có thể override bằng NEXT_PUBLIC_FORWARD_FEE_BUFFER_BPS.
+  const bufferBps = BigInt(process.env.NEXT_PUBLIC_FORWARD_FEE_BUFFER_BPS || "1000");
+  let maxFee = (baseFee * (10000n + bufferBps)) / 10000n;
+
+  // Optional hard cap (0 means disabled)
   const capUsdc = process.env.NEXT_PUBLIC_MAX_FEE_USDC_CAP || "0";
   const cap = parseUnits(capUsdc, 6);
+  if (cap > 0n && maxFee > cap) maxFee = cap;
 
-  // min fee theo docs forwarding (domain 0: 1.25, others: 0.2) sẽ check ở UI theo domain
-  const fromPct = (amount * maxFeeBps) / 10000n;
-  const maxFee = cap > 0n && fromPct > cap ? cap : fromPct;
-
-  // contract yêu cầu maxFee < amount
+  // Contract yêu cầu maxFee < amount
   if (maxFee >= amount) throw new Error("Amount quá nhỏ so với maxFee.");
   return { amount, maxFee };
 }

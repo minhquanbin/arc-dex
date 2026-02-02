@@ -120,7 +120,7 @@ export default function Home() {
         throw new Error("Please enter a valid amount");
       }
 
-      const { amount, maxFee } = computeMaxFee(amountUsdc);
+      const { amount, maxFee } = computeMaxFee(amountUsdc, dest.domain);
 
       const fee = computeFeeUsdc();
       const totalToApprove = amount + fee;
