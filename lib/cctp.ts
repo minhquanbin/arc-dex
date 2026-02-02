@@ -78,6 +78,12 @@ export function computeFeeUsdc() {
 }
 
 export function buildHookDataWithMemo(baseHookData: `0x${string}`, memo?: string) {
+  // NOTE: Forwarding hook "cctp-forward" thường kỳ vọng hookData fixed-size 32 bytes.
+  // Nếu append thêm bytes có thể làm TokenMessengerV2 revert. Mặc định: KHÔNG append memo.
+  // Bật thử nghiệm bằng NEXT_PUBLIC_ENABLE_HOOK_MEMO=true nếu bạn chắc chắn hook cho phép.
+  const enabled = (process.env.NEXT_PUBLIC_ENABLE_HOOK_MEMO || "").toLowerCase() === "true";
+  if (!enabled) return baseHookData;
+
   const m = (memo ?? "").trim();
   if (!m) return baseHookData;
 

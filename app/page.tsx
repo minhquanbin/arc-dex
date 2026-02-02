@@ -161,22 +161,6 @@ export default function Home() {
         account: address,
       });
 
-      setStatus("Simulating transaction...");
-      await publicClient.simulateContract({
-        address: router,
-        abi: ROUTER_ABI,
-        functionName: "bridge",
-        args: [
-          amount,
-          dest.domain,
-          addressToBytes32(recipientAddr as `0x${string}`),
-          maxFee,
-          minFinality,
-          hookData,
-        ],
-        account: address,
-      });
-
       setStatus("Please confirm the bridge transaction in your wallet...");
       const burnHash = await walletClient.writeContract({
         address: router,
