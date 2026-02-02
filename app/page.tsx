@@ -282,10 +282,16 @@ export default function Home() {
         })) as bigint;
 
         if (minProtocolFee > maxFee) {
+          // Add buffer so the forwarding relayer has headroom when destination gas spikes.
+          // Still must satisfy contract rule: maxFee < amount.
+          const bufferedMinFee = (minProtocolFee * 110n) / 100n; // +10%
           console.warn(
-            `⚠️ maxFee (${Number(maxFee) / 1e6}) < minProtocolFee (${Number(minProtocolFee) / 1e6}). Bumping maxFee.`
+            `⚠️ maxFee (${Number(maxFee) / 1e6}) < minProtocolFee (${Number(minProtocolFee) / 1e6}). ` +
+              `Bumping maxFee to ${Number(bufferedMinFee) / 1e6} (+10%).`
           );
-          maxFee = minProtocolFee;
+
+          const maxFeeCap = amount - 1n;
+          maxFee = bufferedMinFee > maxFeeCap ? maxFeeCap : bufferedMinFee;
         }
       } catch (minFeeErr: any) {
         console.warn("⚠️ Không đọc được getMinFeeAmount, tiếp tục dùng maxFee hiện tại:", minFeeErr);
