@@ -90,7 +90,7 @@ export default function Home() {
     const minForwardFee = parseUnits(minForwardFeeUsdc, 6);
 
     // maxFee as percentage of amount (basis points) - giống auto-bridge
-    const maxFeeBps = BigInt(process.env.NEXT_PUBLIC_MAX_FEE_BPS || "2000"); // 20%
+    const maxFeeBps = BigInt(process.env.NEXT_PUBLIC_MAX_FEE_BPS || "500"); // 5%
     const maxFeeFromPct = (amount * maxFeeBps) / 10000n;
 
     // Ensure we at least cover the minimum forwarding fee
