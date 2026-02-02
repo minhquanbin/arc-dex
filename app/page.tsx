@@ -145,20 +145,67 @@ export default function Home() {
       // ✅ Router contract (1 tx: thu phí + bridge)
       const router = (process.env.NEXT_PUBLIC_ARC_ROUTER ||
         "0xEc02A909701A8eB9C84B93b55B6d4A7ca215CFca") as `0x${string}`;
-      const arcUsdc = (process.env.NEXT_PUBLIC_ARC_USDC ||
+      let arcUsdc = ((process.env.NEXT_PUBLIC_ARC_USDC ||
+        process.env.NEXT_PUBLIC_ARC_USDC_ADDRESS) ||
         "0x3600000000000000000000000000000000000000") as `0x${string}`;
       const minFinality = Number(process.env.NEXT_PUBLIC_MIN_FINALITY_THRESHOLD || "1000");
 
+      // Defaults from env (fallback if router getters fail)
+      let feeCollector = FEE_RECEIVER;
+      let feeAmount = computeServiceFee();
+
       console.log("📝 Starting bridge with Router:", router);
-      console.log("💰 USDC address:", arcUsdc);
+      console.log("💰 USDC address (env/default):", arcUsdc);
+
+      // ✅ Read config from Router on-chain to avoid env mismatch
+      setStatus("Đang đọc cấu hình Router (usdc/serviceFee/feeCollector/destinationCaller)...");
+      try {
+        const [routerUsdc, routerFeeCollector, routerServiceFee, routerDestCaller] = await Promise.all([
+          publicClient.readContract({
+            address: router,
+            abi: ROUTER_ABI,
+            functionName: "usdc",
+          }) as Promise<`0x${string}`>,
+          publicClient.readContract({
+            address: router,
+            abi: ROUTER_ABI,
+            functionName: "feeCollector",
+          }) as Promise<`0x${string}`>,
+          publicClient.readContract({
+            address: router,
+            abi: ROUTER_ABI,
+            functionName: "serviceFee",
+          }) as Promise<bigint>,
+          publicClient.readContract({
+            address: router,
+            abi: ROUTER_ABI,
+            functionName: "destinationCaller",
+          }) as Promise<`0x${string}`>,
+        ]);
+
+        arcUsdc = routerUsdc;
+        feeCollector = routerFeeCollector;
+        feeAmount = routerServiceFee;
+
+        console.log("✅ Router USDC (on-chain):", routerUsdc);
+        console.log("✅ Router feeCollector (on-chain):", routerFeeCollector);
+        console.log("✅ Router serviceFee (on-chain):", Number(routerServiceFee) / 1e6, "USDC");
+        console.log("✅ Router destinationCaller (on-chain):", routerDestCaller);
+
+        if (feeCollector.toLowerCase() !== FEE_RECEIVER.toLowerCase()) {
+          console.warn(
+            `⚠️ feeCollector mismatch. env=${FEE_RECEIVER} / router=${feeCollector}. DApp will use router value.`
+          );
+        }
+      } catch (readCfgErr: any) {
+        console.warn("⚠️ Không đọc được cấu hình từ Router, dùng env/default:", readCfgErr);
+      }
 
       // ✅ Step 1: Validate inputs
       setStatus("Đang validate thông tin...");
 
       validateAmount(amountUsdc);
       if (memo) validateMemo(memo);
-
-      const feeAmount = computeServiceFee();
 
       // Compute fees
       let amount: bigint, maxFee: bigint;
@@ -228,7 +275,7 @@ export default function Home() {
           `Số dư USDC không đủ.\n` +
             `Cần: ${(Number(totalNeed) / 1e6).toFixed(6)} USDC (bridge + phí dịch vụ)\n` +
             `Có: ${(Number(bal) / 1e6).toFixed(6)} USDC\n` +
-            `Phí dịch vụ: ${Number(feeAmount) / 1e6} USDC → ${FEE_RECEIVER}`
+            `Phí dịch vụ: ${Number(feeAmount) / 1e6} USDC → ${feeCollector}`
         );
       }
 

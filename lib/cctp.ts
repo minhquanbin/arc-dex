@@ -40,6 +40,20 @@ export const ROUTER_ABI = [
     outputs: [{ name: "", type: "address" }],
   },
   {
+    type: "function",
+    name: "serviceFee",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "destinationCaller",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "bytes32" }],
+  },
+  {
     type: "event",
     name: "BridgeInitiated",
     inputs: [
