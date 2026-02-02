@@ -158,6 +158,7 @@ export default function Home() {
       console.log("💰 USDC address (env/default):", arcUsdc);
 
       // ✅ Read config from Router on-chain to avoid env mismatch
+      // If this fails, we can't trust balance/allowance checks and the tx may silently revert.
       setStatus("Đang đọc cấu hình Router (usdc/serviceFee/feeCollector/destinationCaller)...");
       try {
         const [routerUsdc, routerFeeCollector, routerServiceFee, routerDestCaller] = await Promise.all([
@@ -183,22 +184,39 @@ export default function Home() {
           }) as Promise<`0x${string}`>,
         ]);
 
-        arcUsdc = routerUsdc;
-        feeCollector = routerFeeCollector;
-        feeAmount = routerServiceFee;
-
         console.log("✅ Router USDC (on-chain):", routerUsdc);
         console.log("✅ Router feeCollector (on-chain):", routerFeeCollector);
         console.log("✅ Router serviceFee (on-chain):", Number(routerServiceFee) / 1e6, "USDC");
         console.log("✅ Router destinationCaller (on-chain):", routerDestCaller);
 
+        // Always trust router values
+        arcUsdc = routerUsdc;
+        feeCollector = routerFeeCollector;
+        feeAmount = routerServiceFee;
+
+        // Show the critical config in UI too (so you can screenshot it)
+        setStatus(
+          "✅ Router config:\n" +
+            `Router: ${router}\n` +
+            `USDC (burnToken): ${routerUsdc}\n` +
+            `FeeCollector: ${routerFeeCollector}\n` +
+            `ServiceFee: ${Number(routerServiceFee) / 1e6} USDC\n` +
+            `DestinationCaller: ${routerDestCaller}`
+        );
+
+        // If env feeCollector differs, warn (but still proceed with router value)
         if (feeCollector.toLowerCase() !== FEE_RECEIVER.toLowerCase()) {
           console.warn(
             `⚠️ feeCollector mismatch. env=${FEE_RECEIVER} / router=${feeCollector}. DApp will use router value.`
           );
         }
       } catch (readCfgErr: any) {
-        console.warn("⚠️ Không đọc được cấu hình từ Router, dùng env/default:", readCfgErr);
+        console.error("❌ Không đọc được cấu hình Router:", readCfgErr);
+        throw new Error(
+          `Không đọc được cấu hình Router on-chain (usdc/serviceFee/feeCollector/destinationCaller). ` +
+            `Nếu dApp đang check allowance/balance sai token, Router.bridge sẽ revert. ` +
+            `Chi tiết: ${readCfgErr?.shortMessage || readCfgErr?.message || "Unknown error"}`
+        );
       }
 
       // ✅ Step 1: Validate inputs
