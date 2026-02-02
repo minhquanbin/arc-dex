@@ -18,8 +18,8 @@ import {
 import { parseUnits } from "viem";
 
 const FEE_RECEIVER = (process.env.NEXT_PUBLIC_FEE_COLLECTOR ||
-  "0xA87Bd559fd6F2646225AcE941bA6648Ec1BAA9AF") as const;
-const FEE_USDC = (process.env.NEXT_PUBLIC_FEE_USDC || "0.01") as const;
+  "0xA87Bd559fd6F2646225AcE941bA6648Ec1BAA9AF") as `0x${string}`;
+const FEE_USDC = process.env.NEXT_PUBLIC_FEE_USDC || "0.01";
 
 type TabType = "swap" | "bridge" | "liquidity" | "payment" | "issuance";
 
