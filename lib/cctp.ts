@@ -4,6 +4,7 @@ export function addressToBytes32(address: `0x${string}`) {
   return (`0x${address.toLowerCase().replace(/^0x/, "").padStart(64, "0")}`) as `0x${string}`;
 }
 
+// ✅ Use TokenMessengerV2 ABI (from working auto script)
 export const TOKEN_MESSENGER_V2_ABI = [
   {
     type: "function",
@@ -35,89 +36,47 @@ export const ERC20_ABI = [
   ], outputs: [{ name: "", type: "bool" }] },
 ] as const;
 
-// ✅ FIX: Tính maxFee đảm bảo LUÔN LUÔN maxFee < amount
-export function computeMaxFee(amountUsdc: string, destinationDomain?: number) {
+// ✅ Exact logic from working auto script
+export function computeMaxFee(amountUsdc: string, destinationDomain: number) {
   const amount = parseUnits(amountUsdc, 6);
 
-  // Circle forwarding service base fee
-  const baseFeeUsdc = destinationDomain === 0 ? "1.25" : "0.2"; // Ethereum = $1.25, others = $0.20
-  const baseFee = parseUnits(baseFeeUsdc, 6);
+  // Circle forwarding service base fee (from docs)
+  const minForwardFeeUsdc = destinationDomain === 0 ? "1.25" : "0.2";
+  const minForwardFee = parseUnits(minForwardFeeUsdc, 6);
 
-  // Buffer 10% (1000 bps) theo Circle docs recommendation
-  const bufferBps = BigInt(process.env.NEXT_PUBLIC_FORWARD_FEE_BUFFER_BPS || "1000");
-  let maxFee = (baseFee * (10000n + bufferBps)) / 10000n;
+  // maxFee as percentage of amount (basis points)
+  const maxFeeBps = BigInt(process.env.NEXT_PUBLIC_MAX_FEE_BPS || "2000"); // 20%
+  const maxFeeFromPct = (amount * maxFeeBps) / 10000n;
 
-  // Optional hard cap
-  const capUsdc = process.env.NEXT_PUBLIC_MAX_FEE_USDC_CAP || "0";
-  const cap = parseUnits(capUsdc, 6);
-  if (cap > 0n && maxFee > cap) maxFee = cap;
+  // Ensure we at least cover the minimum forwarding fee
+  let maxFeeToUse = maxFeeFromPct < minForwardFee ? minForwardFee : maxFeeFromPct;
 
-  // ⚠️ CRITICAL FIX: Contract yêu cầu maxFee < amount (STRICT inequality)
-  // Nếu maxFee >= amount, giảm maxFee xuống còn 50% của amount
-  if (maxFee >= amount) {
-    console.warn(`⚠️ maxFee (${Number(maxFee) / 1e6}) >= amount (${Number(amount) / 1e6}), tự động giảm maxFee`);
-    maxFee = amount / 2n; // Safe: luôn đảm bảo maxFee < amount
+  // Optional hard cap (0 means disabled)
+  const maxFeeUsdcCapStr = process.env.NEXT_PUBLIC_MAX_FEE_USDC_CAP || "0";
+  const maxFeeUsdcCap = parseUnits(maxFeeUsdcCapStr, 6);
+  
+  if (maxFeeUsdcCap > 0n && maxFeeToUse > maxFeeUsdcCap) {
+    maxFeeToUse = maxFeeUsdcCap;
   }
 
-  // Double check safety
-  if (maxFee >= amount) {
+  // Final cap: must be strictly less than amount (contract requirement)
+  const maxFeeCap = amount - 1n; // 1 base unit = 0.000001 USDC
+  if (maxFeeToUse > maxFeeCap) {
     throw new Error(
-      `Lỗi nghiêm trọng: maxFee (${Number(maxFee) / 1e6} USDC) >= amount (${Number(amount) / 1e6} USDC). ` +
-      `Contract yêu cầu maxFee < amount. Vui lòng tăng amount.`
+      `Amount quá nhỏ cho maxFee. ` +
+      `Amount: ${Number(amount) / 1e6} USDC, ` +
+      `maxFee cần: ${Number(maxFeeToUse) / 1e6} USDC, ` +
+      `minFee: ${Number(minForwardFee) / 1e6} USDC (domain ${destinationDomain})`
     );
   }
 
-  return { amount, maxFee };
+  return { amount, maxFee: maxFeeToUse };
 }
 
 export const HOOK_DATA =
-  "0x636374702d666f72776172640000000000000000000000000000000000000000" as const; // cctp-forward + version/len
+  "0x636374702d666f72776172640000000000000000000000000000000000000000" as const;
 
 export const DEST_CALLER_ZERO = addressToBytes32("0x0000000000000000000000000000000000000000");
-
-export const ROUTER_ABI = [
-  {
-    type: "function",
-    name: "bridge",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "amount", type: "uint256" },
-      { name: "destinationDomain", type: "uint32" },
-      { name: "mintRecipient", type: "bytes32" },
-      { name: "maxFee", type: "uint256" },
-      { name: "minFinalityThreshold", type: "uint32" },
-      { name: "hookData", type: "bytes" },
-    ],
-    outputs: [{ name: "nonce", type: "uint64" }],
-  },
-  { type: "function", name: "usdc", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "address" }] },
-  { type: "function", name: "tokenMessengerV2", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "address" }] },
-  { type: "function", name: "feeCollector", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "address" }] },
-] as const;
-
-export function computeFeeUsdc() {
-  const feeStr = process.env.NEXT_PUBLIC_FEE_USDC || "0.01";
-  return parseUnits(feeStr, 6);
-}
-
-export function buildHookDataWithMemo(baseHookData: `0x${string}`, memo?: string) {
-  // NOTE: Forwarding hook "cctp-forward" thường kỳ vọng hookData fixed-size 32 bytes.
-  // Nếu append thêm bytes có thể làm TokenMessengerV2 revert. Mặc định: KHÔNG append memo.
-  const enabled = (process.env.NEXT_PUBLIC_ENABLE_HOOK_MEMO || "").toLowerCase() === "true";
-  if (!enabled) return baseHookData;
-
-  const m = (memo ?? "").trim();
-  if (!m) return baseHookData;
-
-  const bytes = new TextEncoder().encode(m);
-  if (bytes.length > 128) throw new Error("Memo tối đa 128 bytes (UTF-8).");
-
-  const hex = Array.from(bytes)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-
-  return (baseHookData + hex) as `0x${string}`;
-}
 
 // Validate recipient address
 export function validateRecipient(address: string): `0x${string}` {
@@ -128,13 +87,13 @@ export function validateRecipient(address: string): `0x${string}` {
   return cleaned as `0x${string}`;
 }
 
-// ✅ FIX: Validate amount - giảm minimum xuống 0.5 USDC
+// Validate amount
 export function validateAmount(amountStr: string): number {
   const num = parseFloat(amountStr);
   if (isNaN(num) || num <= 0) {
     throw new Error("Amount phải là số dương lớn hơn 0");
   }
-  // Giảm minimum từ 1.5 → 0.5 USDC vì maxFee đã được fix tự động
+  // Minimum based on Circle's forwarding fee
   if (num < 0.5) {
     throw new Error("Amount tối thiểu 0.5 USDC");
   }
