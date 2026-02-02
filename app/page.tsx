@@ -227,15 +227,48 @@ export default function Home() {
       }
 
       // ✅ Step 5: Bridge via Router (1 tx)
-      setStatus("Đang gửi giao dịch bridge...");
-
       const finalHookData = buildHookDataWithMemo(HOOK_DATA, memo);
 
+      // Preflight simulate to surface revert reason (helps avoid MetaMask "Inaccurate fee")
+      setStatus("Đang mô phỏng giao dịch (simulate)...");
+      try {
+        await publicClient.simulateContract({
+          address: router,
+          abi: ROUTER_ABI,
+          functionName: "bridge",
+          args: [amount, dest.domain, addressToBytes32(recipientAddr), maxFee, minFinality, finalHookData],
+          account: address,
+        });
+      } catch (simErr: any) {
+        console.error("simulateContract error:", simErr);
+        throw new Error(
+          `Simulate thất bại: ${simErr?.shortMessage || simErr?.message || "Unknown error"}`
+        );
+      }
+
+      // Estimate gas and apply buffer
+      setStatus("Đang ước tính gas...");
+      let gas: bigint | undefined;
+      try {
+        const estimated = await publicClient.estimateContractGas({
+          address: router,
+          abi: ROUTER_ABI,
+          functionName: "bridge",
+          args: [amount, dest.domain, addressToBytes32(recipientAddr), maxFee, minFinality, finalHookData],
+          account: address,
+        });
+        gas = (estimated * 12n) / 10n; // +20% buffer
+      } catch (gasErr: any) {
+        console.warn("estimateContractGas failed, sending without explicit gas:", gasErr);
+      }
+
+      setStatus("Đang gửi giao dịch bridge...");
       const hash = await walletClient.writeContract({
         address: router,
         abi: ROUTER_ABI,
         functionName: "bridge",
         args: [amount, dest.domain, addressToBytes32(recipientAddr), maxFee, minFinality, finalHookData],
+        ...(gas ? { gas } : {}),
       });
 
       setTxHash(hash);
