@@ -1,10 +1,19 @@
+@import "tailwindcss";
+
 :root {
-  --bg: #05070b;
-  --card: rgba(255,255,255,0.06);
-  --stroke: rgba(255,255,255,0.10);
+  --background: #ffffff;
+  --foreground: #171717;
 }
 
-body { background: radial-gradient(1200px 800px at 20% 10%, rgba(80,255,220,.14), transparent 60%),
-                  radial-gradient(1000px 700px at 80% 20%, rgba(90,160,255,.14), transparent 55%),
-                  radial-gradient(900px 700px at 50% 90%, rgba(170,120,255,.12), transparent 55%),
-                  var(--bg); }
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: Arial, Helvetica, sans-serif;
+}
