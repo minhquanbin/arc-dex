@@ -194,14 +194,9 @@ export function computeMaxFee(amountUsdc: string, destinationDomain: number) {
  * Build hookData with memo
  * Format: cctp-forward header (32 bytes) + UTF-8 memo (max 128 bytes)
  */
-export function buildHookDataWithMemo(_baseHookData: string, memo: string): `0x${string}` {
-  // NOTE: user requested hookData raw UTF-8 to show ONLY the memo content.
-  // So we send memo bytes only (no cctp-forward header).
-  if (!memo || memo.trim() === "") {
-    return "0x";
-  }
+export function memoToUtf8Hex(memo: string): `0x${string}` {
+  if (!memo || memo.trim() === "") return "0x";
 
-  // Encode memo as UTF-8 hex
   const encoder = new TextEncoder();
   const memoBytes = encoder.encode(memo.trim());
 
@@ -209,12 +204,26 @@ export function buildHookDataWithMemo(_baseHookData: string, memo: string): `0x$
   const maxMemoLength = 128;
   const truncatedMemo = memoBytes.slice(0, maxMemoLength);
 
-  // Convert to hex
   const memoHex = Array.from(truncatedMemo)
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 
   return `0x${memoHex}` as `0x${string}`;
+}
+
+/**
+ * Build hookData with memo for Circle Forwarding Service
+ * Format: cctp-forward header (32 bytes) + UTF-8 memo (max 128 bytes)
+ */
+export function buildHookDataWithMemo(baseHookData: string, memo: string): `0x${string}` {
+  // IMPORTANT: Forwarding Service expects the cctp-forward header.
+  // If you send memo-only bytes here, forwarding may NOT execute on the destination chain.
+  if (!memo || memo.trim() === "") {
+    return baseHookData as `0x${string}`;
+  }
+
+  const memoHex = memoToUtf8Hex(memo).slice(2);
+  return `${baseHookData}${memoHex}` as `0x${string}`;
 }
 
 // =====================================================
