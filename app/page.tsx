@@ -49,7 +49,6 @@ export default function Home() {
           params: [{ chainId: chainIdHex }],
         });
       } catch (switchError: any) {
-        // Chain not added to MetaMask
         if (switchError.code === 4902) {
           await window.ethereum.request({
             method: 'wallet_addEthereumChain',
@@ -71,7 +70,7 @@ export default function Home() {
       }
     } catch (error: any) {
       console.error('Failed to switch network:', error);
-      setStatus(`Error switching network: ${error?.message || 'Unknown error'}`);
+      setStatus(`Lỗi chuyển mạng: ${error?.message || 'Unknown error'}`);
     }
   }
 
@@ -82,60 +81,64 @@ export default function Home() {
       setLoading(true);
 
       if (!isConnected || !address || !walletClient || !publicClient) {
-        throw new Error("Please connect your wallet first");
+        throw new Error("Vui lòng kết nối ví trước");
       }
 
       if (isWrongNetwork) {
-        throw new Error(`Please switch to ARC Testnet (Chain ID: ${expectedChainId})`);
+        throw new Error(`Vui lòng chuyển sang ARC Testnet (Chain ID: ${expectedChainId})`);
       }
 
       const router = (process.env.NEXT_PUBLIC_ARC_ROUTER || "0x82657177d3b529E008cb766475F53CeFb0d95819") as `0x${string}`;
       const minFinality = Number(process.env.NEXT_PUBLIC_MIN_FINALITY_THRESHOLD || "1000");
 
       if (!router) {
-        throw new Error("Router address not configured");
+        throw new Error("Chưa cấu hình địa chỉ Router");
       }
 
-      // ✅ Step 1: Get actual USDC address from Router contract
-      setStatus("Getting contract configuration...");
+      // ✅ Step 1: Get USDC address from Router
+      setStatus("Đang lấy thông tin contract...");
       const usdc = (await publicClient.readContract({
         address: router,
         abi: ROUTER_ABI,
         functionName: "usdc",
       })) as `0x${string}`;
-      
-      const tokenMessenger = (await publicClient.readContract({
-        address: router,
-        abi: ROUTER_ABI,
-        functionName: "tokenMessengerV2",
-      })) as `0x${string}`;
 
-      console.log("📝 Contract Config:", { router, usdc, tokenMessenger });
+      console.log("📝 Config:", { router, usdc });
 
-      // ✅ Step 2: Validate inputs BEFORE any blockchain calls
-      setStatus("Validating inputs...");
-      const amountNum = validateAmount(amountUsdc);
+      // ✅ Step 2: Validate và tính toán fees
+      setStatus("Đang validate thông tin...");
       
-      // Compute fees early to show user
+      // Validate amount trước
+      validateAmount(amountUsdc);
+      
+      // Compute fees với domain để tính đúng base fee
       let amount: bigint, maxFee: bigint;
       try {
         ({ amount, maxFee } = computeMaxFee(amountUsdc, dest.domain));
       } catch (feeErr: any) {
-        throw new Error(`Fee calculation failed: ${feeErr.message}`);
+        throw new Error(`Lỗi tính phí: ${feeErr.message}`);
       }
 
-      const fee = computeFeeUsdc();
-      const totalToApprove = amount + fee;
+      const serviceFee = computeFeeUsdc();
+      const totalToApprove = amount + serviceFee;
 
       console.log("💰 Amounts:", {
         amount: Number(amount) / 1e6,
         maxFee: Number(maxFee) / 1e6,
-        serviceFee: Number(fee) / 1e6,
+        serviceFee: Number(serviceFee) / 1e6,
         total: Number(totalToApprove) / 1e6,
       });
 
+      // ✅ CRITICAL: Verify maxFee < amount
+      if (maxFee >= amount) {
+        throw new Error(
+          `Lỗi tính toán: maxFee (${Number(maxFee) / 1e6}) phải nhỏ hơn amount (${Number(amount) / 1e6}). ` +
+          `Vui lòng tăng amount hoặc liên hệ support.`
+        );
+      }
+
       // ✅ Step 3: Check balance
-      setStatus("Checking USDC balance...");
+      setStatus("Đang kiểm tra số dư USDC...");
       const bal = await publicClient.readContract({
         address: usdc,
         abi: ERC20_ABI,
@@ -147,14 +150,14 @@ export default function Home() {
 
       if (bal < totalToApprove) {
         throw new Error(
-          `Số dư USDC không đủ. ` +
-          `Cần: ${Number(totalToApprove) / 1e6} USDC (${Number(amount) / 1e6} bridge + ${Number(fee) / 1e6} service fee). ` +
-          `Có: ${Number(bal) / 1e6} USDC.`
+          `Số dư USDC không đủ.\n` +
+          `Cần: ${Number(totalToApprove) / 1e6} USDC (${Number(amount) / 1e6} bridge + ${Number(serviceFee) / 1e6} phí)\n` +
+          `Có: ${Number(bal) / 1e6} USDC`
         );
       }
 
-      // ✅ Step 4: Check and approve if needed
-      setStatus("Checking USDC allowance...");
+      // ✅ Step 4: Check và approve nếu cần
+      setStatus("Đang kiểm tra allowance...");
       const allowance = await publicClient.readContract({
         address: usdc,
         abi: ERC20_ABI,
@@ -165,7 +168,7 @@ export default function Home() {
       console.log("✅ Allowance:", Number(allowance) / 1e6, "USDC");
 
       if (allowance < totalToApprove) {
-        setStatus("Please approve USDC in your wallet...");
+        setStatus("Vui lòng approve USDC trong ví...");
         const approveHash = await walletClient.writeContract({
           address: usdc,
           abi: ERC20_ABI,
@@ -173,7 +176,7 @@ export default function Home() {
           args: [router, totalToApprove],
         });
         
-        setStatus("Waiting for approval confirmation...");
+        setStatus("Đang chờ xác nhận approve...");
         await publicClient.waitForTransactionReceipt({ hash: approveHash });
         console.log("✅ Approved:", approveHash);
       }
@@ -187,43 +190,19 @@ export default function Home() {
       // ✅ Step 6: Build hookData
       const hookData = buildHookDataWithMemo(HOOK_DATA, memo);
 
-      console.log("📦 Bridge params:", {
+      const bridgeParams = {
         amount: amount.toString(),
         destinationDomain: dest.domain,
         mintRecipient: recipientBytes32,
         maxFee: maxFee.toString(),
         minFinalityThreshold: minFinality,
         hookData,
-      });
+      };
 
-      // ✅ Step 7: Optional simulation (disabled by default to avoid false negatives)
-      const enableSimulate = (process.env.NEXT_PUBLIC_ENABLE_SIMULATE || "").toLowerCase() === "true";
-      if (enableSimulate) {
-        try {
-          setStatus("Simulating transaction...");
-          await publicClient.simulateContract({
-            address: router,
-            abi: ROUTER_ABI,
-            functionName: "bridge",
-            args: [
-              amount,
-              dest.domain,
-              recipientBytes32,
-              maxFee,
-              minFinality,
-              hookData,
-            ],
-            account: address,
-          });
-          console.log("✅ Simulation passed");
-        } catch (simErr: any) {
-          console.warn("⚠️ Simulation failed:", simErr.message);
-          // Don't throw - let user try anyway
-        }
-      }
+      console.log("📦 Bridge params:", bridgeParams);
 
-      // ✅ Step 8: Execute bridge transaction
-      setStatus("Please confirm the bridge transaction in your wallet...");
+      // ✅ Step 7: Execute bridge transaction
+      setStatus("Vui lòng xác nhận giao dịch bridge trong ví...");
       const burnHash = await walletClient.writeContract({
         address: router,
         abi: ROUTER_ABI,
@@ -240,31 +219,30 @@ export default function Home() {
 
       console.log("🔥 Bridge tx sent:", burnHash);
 
-      setStatus("Waiting for transaction confirmation...");
+      setStatus("Đang chờ xác nhận giao dịch...");
       const receipt = await publicClient.waitForTransactionReceipt({ hash: burnHash });
       
       console.log("✅ Bridge tx confirmed:", receipt);
 
       setTxHash(burnHash);
-      setStatus("Bridge transaction successful! Funds will arrive in 2-5 minutes.");
+      setStatus("✅ Bridge thành công! Tiền sẽ đến trong 2-5 phút.");
       setAmountUsdc("");
       setMemo("");
     } catch (e: any) {
       console.error("❌ Bridge error:", e);
       
-      // Better error messages
-      let errorMsg = e?.message || e?.shortMessage || "Transaction failed";
+      let errorMsg = e?.message || e?.shortMessage || "Giao dịch thất bại";
       
       // Parse common errors
       if (errorMsg.includes("insufficient funds")) {
-        errorMsg = "Số dư USDC không đủ để bridge + trả phí gas";
-      } else if (errorMsg.includes("user rejected")) {
+        errorMsg = "Số dư không đủ để trả phí gas";
+      } else if (errorMsg.includes("user rejected") || errorMsg.includes("User rejected")) {
         errorMsg = "Bạn đã từ chối giao dịch";
       } else if (errorMsg.includes("execution reverted")) {
-        errorMsg = "Contract từ chối giao dịch. Vui lòng kiểm tra lại amount và balance.";
+        errorMsg = "Contract từ chối giao dịch. Có thể contract đang tạm dừng hoặc có lỗi cấu hình.";
       }
       
-      setStatus(`Error: ${errorMsg}`);
+      setStatus(`❌ Lỗi: ${errorMsg}`);
     } finally {
       setLoading(false);
     }
@@ -301,15 +279,15 @@ export default function Home() {
             <div className="flex items-start gap-3">
               <span className="text-xl">⚠️</span>
               <div className="flex-1">
-                <div className="font-semibold text-amber-900">Wrong Network</div>
+                <div className="font-semibold text-amber-900">Sai mạng</div>
                 <div className="mt-1 text-sm text-amber-700">
-                  Please switch to ARC Testnet (Chain ID: {expectedChainId})
+                  Vui lòng chuyển sang ARC Testnet (Chain ID: {expectedChainId})
                 </div>
                 <button
                   onClick={switchToARC}
                   className="mt-3 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 transition-colors"
                 >
-                  Switch to ARC Testnet
+                  Chuyển sang ARC Testnet
                 </button>
               </div>
             </div>
@@ -352,8 +330,8 @@ export default function Home() {
             {tab !== "bridge" ? (
               <div className="py-16 text-center">
                 <div className="mb-4 text-6xl">🚧</div>
-                <h3 className="mb-2 text-xl font-semibold text-gray-900">Coming Soon</h3>
-                <p className="text-gray-600">This feature is under development</p>
+                <h3 className="mb-2 text-xl font-semibold text-gray-900">Sắp ra mắt</h3>
+                <p className="text-gray-600">Tính năng đang được phát triển</p>
               </div>
             ) : (
               <div className="space-y-6">
@@ -362,8 +340,8 @@ export default function Home() {
                   <h2 className="text-2xl font-bold text-gray-900">Bridge Tokens</h2>
                   <p className="mt-2 text-sm text-gray-600">
                     {isConnected
-                      ? "Transfer USDC from ARC to other testnets"
-                      : "Connect your wallet to start bridging stablecoins"}
+                      ? "Chuyển USDC từ ARC sang các testnet khác"
+                      : "Kết nối ví để bắt đầu bridge stablecoin"}
                   </p>
                 </div>
 
@@ -374,7 +352,7 @@ export default function Home() {
                       {/* Destination */}
                       <div>
                         <label className="mb-2 block text-sm font-medium text-gray-700">
-                          Destination Chain
+                          Chain đích
                         </label>
                         <select
                           value={destKey}
@@ -392,7 +370,7 @@ export default function Home() {
                       {/* Recipient */}
                       <div>
                         <label className="mb-2 block text-sm font-medium text-gray-700">
-                          Recipient (wallet B)
+                          Địa chỉ nhận (tùy chọn)
                         </label>
                         <input
                           type="text"
@@ -403,14 +381,14 @@ export default function Home() {
                           className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 shadow-sm transition-all focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-200 disabled:cursor-not-allowed disabled:bg-gray-100"
                         />
                         <div className="mt-1 text-xs text-gray-500">
-                          Để trống = gửi về ví đang connect.
+                          Để trống = gửi về ví hiện tại
                         </div>
                       </div>
 
                       {/* Memo */}
                       <div>
                         <label className="mb-2 block text-sm font-medium text-gray-700">
-                          Memo (optional, max 128 bytes)
+                          Ghi chú (tùy chọn, max 128 bytes)
                         </label>
                         <input
                           type="text"
@@ -425,16 +403,16 @@ export default function Home() {
                       {/* Amount */}
                       <div>
                         <label className="mb-2 block text-sm font-medium text-gray-700">
-                          Amount
+                          Số lượng
                         </label>
                         <div className="relative">
                           <input
                             type="number"
                             step="0.01"
-                            min="1.5"
+                            min="0.5"
                             value={amountUsdc}
                             onChange={(e) => setAmountUsdc(e.target.value)}
-                            placeholder="Minimum 1.5 USDC"
+                            placeholder="Tối thiểu 0.5 USDC"
                             disabled={loading}
                             className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 pr-16 text-gray-900 shadow-sm transition-all focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-200 disabled:cursor-not-allowed disabled:bg-gray-100"
                           />
@@ -443,7 +421,7 @@ export default function Home() {
                           </div>
                         </div>
                         <div className="mt-1 text-xs text-gray-500">
-                          Tối thiểu 1.5 USDC (để đủ chi phí bridge)
+                          Tối thiểu 0.5 USDC
                         </div>
                       </div>
 
@@ -451,20 +429,20 @@ export default function Home() {
                       <div className="rounded-xl bg-gradient-to-r from-purple-50 to-blue-50 p-4">
                         <div className="space-y-2 text-sm">
                           <div className="flex justify-between">
-                            <span className="text-gray-600">Service fee</span>
+                            <span className="text-gray-600">Phí dịch vụ</span>
                             <span className="font-semibold text-gray-900">{process.env.NEXT_PUBLIC_FEE_USDC || "0.01"} USDC</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-gray-600">From</span>
+                            <span className="text-gray-600">Từ</span>
                             <span className="font-semibold text-gray-900">ARC Testnet</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-gray-600">To</span>
+                            <span className="text-gray-600">Đến</span>
                             <span className="font-semibold text-gray-900">{dest.name}</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-gray-600">Estimated time</span>
-                            <span className="font-semibold text-gray-900">~2-5 minutes</span>
+                            <span className="text-gray-600">Thời gian ước tính</span>
+                            <span className="font-semibold text-gray-900">~2-5 phút</span>
                           </div>
                         </div>
                       </div>
@@ -472,10 +450,10 @@ export default function Home() {
                       {/* Bridge Button */}
                       <button
                         onClick={onBridge}
-                        disabled={loading || isWrongNetwork || !amountUsdc || parseFloat(amountUsdc) < 1.5}
+                        disabled={loading || isWrongNetwork || !amountUsdc || parseFloat(amountUsdc) < 0.5}
                         className={[
                           "w-full rounded-xl px-6 py-4 font-semibold text-white shadow-lg transition-all",
-                          loading || isWrongNetwork || !amountUsdc || parseFloat(amountUsdc) < 1.5
+                          loading || isWrongNetwork || !amountUsdc || parseFloat(amountUsdc) < 0.5
                             ? "cursor-not-allowed bg-gray-300"
                             : "bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 active:scale-[0.98]",
                         ].join(" ")}
@@ -483,10 +461,10 @@ export default function Home() {
                         {loading ? (
                           <div className="flex items-center justify-center gap-2">
                             <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                            <span>Processing...</span>
+                            <span>Đang xử lý...</span>
                           </div>
                         ) : isWrongNetwork ? (
-                          "Wrong Network"
+                          "Sai mạng"
                         ) : (
                           "Bridge USDC"
                         )}
@@ -497,9 +475,9 @@ export default function Home() {
                         <div
                           className={[
                             "rounded-xl border p-4 text-sm",
-                            status.includes("successful")
+                            status.includes("thành công") || status.includes("✅")
                               ? "border-green-200 bg-green-50 text-green-800"
-                              : status.includes("Error")
+                              : status.includes("Lỗi") || status.includes("❌")
                               ? "border-red-200 bg-red-50 text-red-800"
                               : "border-blue-200 bg-blue-50 text-blue-800",
                           ].join(" ")}
@@ -508,7 +486,7 @@ export default function Home() {
                             {loading && (
                               <div className="mt-0.5 h-4 w-4 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
                             )}
-                            <div className="flex-1">
+                            <div className="flex-1 whitespace-pre-line">
                               {status}
                               {txHash && (
                                 <a
@@ -517,7 +495,7 @@ export default function Home() {
                                   rel="noopener noreferrer"
                                   className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-green-700 hover:text-green-900 underline"
                                 >
-                                  View transaction →
+                                  Xem giao dịch →
                                 </a>
                               )}
                             </div>
@@ -529,12 +507,12 @@ export default function Home() {
                     {/* Footer Note */}
                     <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
                       <div className="text-xs text-gray-600">
-                        <div className="mb-2 font-semibold text-gray-700">📝 Important Notes:</div>
+                        <div className="mb-2 font-semibold text-gray-700">📝 Lưu ý quan trọng:</div>
                         <ul className="ml-4 list-disc space-y-1">
-                          <li>Powered by Circle CCTP</li>
-                          <li>No destination gas tokens required</li>
-                          <li>Transactions typically complete in 2-5 minutes</li>
-                          <li>Minimum amount: 1.5 USDC (to cover fees)</li>
+                          <li>Sử dụng công nghệ Circle CCTP</li>
+                          <li>Không cần gas token ở chain đích</li>
+                          <li>Giao dịch hoàn tất trong 2-5 phút</li>
+                          <li>Số lượng tối thiểu: 0.5 USDC</li>
                         </ul>
                       </div>
                     </div>
@@ -542,7 +520,7 @@ export default function Home() {
                 ) : (
                   <div className="py-12 text-center">
                     <div className="mb-4 text-4xl">👛</div>
-                    <p className="text-gray-600">Connect your wallet to get started</p>
+                    <p className="text-gray-600">Kết nối ví để bắt đầu</p>
                   </div>
                 )}
               </div>
@@ -563,7 +541,7 @@ export default function Home() {
               rel="noopener noreferrer"
               className="text-purple-600 hover:text-purple-700 underline"
             >
-              📚 Documentation
+              📚 Tài liệu
             </a>
           </div>
         </div>

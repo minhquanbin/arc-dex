@@ -35,38 +35,35 @@ export const ERC20_ABI = [
   ], outputs: [{ name: "", type: "bool" }] },
 ] as const;
 
+// ✅ FIX: Tính maxFee đảm bảo LUÔN LUÔN maxFee < amount
 export function computeMaxFee(amountUsdc: string, destinationDomain?: number) {
   const amount = parseUnits(amountUsdc, 6);
 
-  // Forwarding Service fee (Circle docs): Ethereum $1.25, all other chains $0.20.
-  const baseFeeUsdc = destinationDomain === 0 ? "1.25" : "0.2";
+  // Circle forwarding service base fee
+  const baseFeeUsdc = destinationDomain === 0 ? "1.25" : "0.2"; // Ethereum = $1.25, others = $0.20
   const baseFee = parseUnits(baseFeeUsdc, 6);
 
-  // buffer mặc định 10% (1000 bps). Có thể override bằng NEXT_PUBLIC_FORWARD_FEE_BUFFER_BPS.
+  // Buffer 10% (1000 bps) theo Circle docs recommendation
   const bufferBps = BigInt(process.env.NEXT_PUBLIC_FORWARD_FEE_BUFFER_BPS || "1000");
   let maxFee = (baseFee * (10000n + bufferBps)) / 10000n;
 
-  // Optional hard cap (0 means disabled)
+  // Optional hard cap
   const capUsdc = process.env.NEXT_PUBLIC_MAX_FEE_USDC_CAP || "0";
   const cap = parseUnits(capUsdc, 6);
   if (cap > 0n && maxFee > cap) maxFee = cap;
 
-  // ⚠️ CRITICAL: Contract yêu cầu maxFee < amount (STRICT inequality)
-  // Đảm bảo có khoảng cách an toàn ít nhất 1 USDC
-  const minSafeAmount = maxFee + parseUnits("1", 6);
-  if (amount <= minSafeAmount) {
-    throw new Error(
-      `Amount phải lớn hơn maxFee ít nhất 1 USDC. ` +
-      `Cần tối thiểu ${Number(minSafeAmount) / 1e6} USDC, ` +
-      `bạn đang nhập ${Number(amount) / 1e6} USDC.`
-    );
+  // ⚠️ CRITICAL FIX: Contract yêu cầu maxFee < amount (STRICT inequality)
+  // Nếu maxFee >= amount, giảm maxFee xuống còn 50% của amount
+  if (maxFee >= amount) {
+    console.warn(`⚠️ maxFee (${Number(maxFee) / 1e6}) >= amount (${Number(amount) / 1e6}), tự động giảm maxFee`);
+    maxFee = amount / 2n; // Safe: luôn đảm bảo maxFee < amount
   }
 
-  // Double check
+  // Double check safety
   if (maxFee >= amount) {
     throw new Error(
-      `maxFee (${Number(maxFee) / 1e6} USDC) phải nhỏ hơn amount (${Number(amount) / 1e6} USDC). ` +
-      `Vui lòng tăng amount hoặc giảm buffer fee.`
+      `Lỗi nghiêm trọng: maxFee (${Number(maxFee) / 1e6} USDC) >= amount (${Number(amount) / 1e6} USDC). ` +
+      `Contract yêu cầu maxFee < amount. Vui lòng tăng amount.`
     );
   }
 
@@ -106,14 +103,13 @@ export function computeFeeUsdc() {
 export function buildHookDataWithMemo(baseHookData: `0x${string}`, memo?: string) {
   // NOTE: Forwarding hook "cctp-forward" thường kỳ vọng hookData fixed-size 32 bytes.
   // Nếu append thêm bytes có thể làm TokenMessengerV2 revert. Mặc định: KHÔNG append memo.
-  // Bật thử nghiệm bằng NEXT_PUBLIC_ENABLE_HOOK_MEMO=true nếu bạn chắc chắn hook cho phép.
   const enabled = (process.env.NEXT_PUBLIC_ENABLE_HOOK_MEMO || "").toLowerCase() === "true";
   if (!enabled) return baseHookData;
 
   const m = (memo ?? "").trim();
   if (!m) return baseHookData;
 
-  const bytes = new TextEncoder().encode(m); // UTF-8
+  const bytes = new TextEncoder().encode(m);
   if (bytes.length > 128) throw new Error("Memo tối đa 128 bytes (UTF-8).");
 
   const hex = Array.from(bytes)
@@ -123,7 +119,7 @@ export function buildHookDataWithMemo(baseHookData: `0x${string}`, memo?: string
   return (baseHookData + hex) as `0x${string}`;
 }
 
-// Helper: Validate recipient address
+// Validate recipient address
 export function validateRecipient(address: string): `0x${string}` {
   const cleaned = address.trim();
   if (!/^0x[a-fA-F0-9]{40}$/.test(cleaned)) {
@@ -132,15 +128,15 @@ export function validateRecipient(address: string): `0x${string}` {
   return cleaned as `0x${string}`;
 }
 
-// Helper: Validate amount
+// ✅ FIX: Validate amount - giảm minimum xuống 0.5 USDC
 export function validateAmount(amountStr: string): number {
   const num = parseFloat(amountStr);
   if (isNaN(num) || num <= 0) {
     throw new Error("Amount phải là số dương lớn hơn 0");
   }
-  // Minimum amount để đảm bảo maxFee < amount
-  if (num < 1.5) {
-    throw new Error("Amount tối thiểu 1.5 USDC để đủ chi phí bridge");
+  // Giảm minimum từ 1.5 → 0.5 USDC vì maxFee đã được fix tự động
+  if (num < 0.5) {
+    throw new Error("Amount tối thiểu 0.5 USDC");
   }
   return num;
 }

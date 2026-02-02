@@ -1,6 +1,6 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
-# dependencies
+# Dependencies
 /node_modules
 /.pnp
 .pnp.*
@@ -9,70 +9,6 @@
 !.yarn/plugins
 !.yarn/releases
 !.yarn/versions
-
-# testing
-/coverage
-
-# next.js
-/.next/
-/out/
-
-# production
-/build
-
-# misc
-.DS_Store
-*.pem
-
-# debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
-
-# env files (can opt-in for committing if needed)
-.env*
-
-# vercel
-.vercel
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
-
-# dependencies
-node_modules/
-
-# Next.js
-.next/
-out/
-
-# env files (secrets)
-.env
-.env.local
-.env.*.local
-
-# logs
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-
-# OS
-.DS_Store
-
-# tooling
-.turbo/
-coverage/
-
-# sensitive local files (from your sample script)
-mnemonics.txt
-proxies.txt
-
-# Dependencies
-/node_modules
-/.pnp
-.pnp.js
 
 # Testing
 /coverage
@@ -84,26 +20,26 @@ proxies.txt
 # Production
 /build
 
-# Misc
-.DS_Store
-*.pem
+# Vercel
+.vercel
 
-# Debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Local env files
+# Environment variables (secrets)
+.env
+.env*
 .env*.local
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
 
-# Vercel
-.vercel
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-debug.log*
 
-# Typescript
+# TypeScript
 *.tsbuildinfo
 next-env.d.ts
 
@@ -114,6 +50,17 @@ next-env.d.ts
 *.swo
 *~
 
+# OS files
+.DS_Store
+*.pem
+
 # Backup files
 *.backup
 *.bak
+
+# Turbo
+.turbo/
+
+# Sensitive local files
+mnemonics.txt
+proxies.txt
