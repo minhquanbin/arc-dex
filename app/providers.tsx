@@ -7,12 +7,12 @@ import { WagmiProvider, createConfig, http } from "wagmi";
 import { defineChain } from "viem";
 
 const arc = defineChain({
-  id: Number(process.env.NEXT_PUBLIC_ARC_CHAIN_ID || 12345),
+  id: Number(process.env.NEXT_PUBLIC_ARC_CHAIN_ID || 5042002),
   name: "ARC Testnet",
   nativeCurrency: { 
-    name: "ARC", 
-    symbol: "ARC", 
-    decimals: 18 
+    name: "USDC", 
+    symbol: "USDC", 
+    decimals: 6 
   },
   rpcUrls: {
     default: { 

@@ -29,8 +29,46 @@ export default function Home() {
 
   const dest = useMemo(() => DESTS.find((d) => d.key === destKey) || DESTS[0], [destKey]);
 
-  const expectedChainId = Number(process.env.NEXT_PUBLIC_ARC_CHAIN_ID || 12345);
+  const expectedChainId = Number(process.env.NEXT_PUBLIC_ARC_CHAIN_ID || 5042002);
   const isWrongNetwork = isConnected && chain?.id !== expectedChainId;
+
+  async function switchToARC() {
+    try {
+      if (!window.ethereum) return;
+      
+      const chainIdHex = `0x${expectedChainId.toString(16)}`;
+      
+      try {
+        await window.ethereum.request({
+          method: 'wallet_switchEthereumChain',
+          params: [{ chainId: chainIdHex }],
+        });
+      } catch (switchError: any) {
+        // Chain not added to MetaMask
+        if (switchError.code === 4902) {
+          await window.ethereum.request({
+            method: 'wallet_addEthereumChain',
+            params: [{
+              chainId: chainIdHex,
+              chainName: 'ARC Testnet',
+              nativeCurrency: {
+                name: 'USDC',
+                symbol: 'USDC',
+                decimals: 6,
+              },
+              rpcUrls: [process.env.NEXT_PUBLIC_ARC_RPC_URL || 'https://rpc.testnet.arc.network'],
+              blockExplorerUrls: ['https://explorer.testnet.arc.network'],
+            }],
+          });
+        } else {
+          throw switchError;
+        }
+      }
+    } catch (error: any) {
+      console.error('Failed to switch network:', error);
+      setStatus(`Error switching network: ${error?.message || 'Unknown error'}`);
+    }
+  }
 
   async function onBridge() {
     try {
@@ -143,11 +181,17 @@ export default function Home() {
           <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4">
             <div className="flex items-start gap-3">
               <span className="text-xl">⚠️</span>
-              <div>
+              <div className="flex-1">
                 <div className="font-semibold text-amber-900">Wrong Network</div>
                 <div className="mt-1 text-sm text-amber-700">
                   Please switch to ARC Testnet (Chain ID: {expectedChainId})
                 </div>
+                <button
+                  onClick={switchToARC}
+                  className="mt-3 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 transition-colors"
+                >
+                  Switch to ARC Testnet
+                </button>
               </div>
             </div>
           </div>
@@ -328,7 +372,7 @@ export default function Home() {
                       <div className="text-xs text-gray-600">
                         <div className="mb-2 font-semibold text-gray-700">📝 Important Notes:</div>
                         <ul className="ml-4 list-disc space-y-1">
-                          <li>Powered by Circle's CCTP protocol</li>
+                          <li>Powered by 1992evm</li>
                           <li>No destination gas tokens required</li>
                           <li>Transactions typically complete in 2-5 minutes</li>
                         </ul>
@@ -349,7 +393,7 @@ export default function Home() {
         {/* Footer */}
         <div className="mt-8 text-center">
           <div className="inline-flex items-center gap-4 text-xs text-gray-500">
-            <span>Powered by Tempo Network</span>
+            <span>Powered by 1992evm</span>
             <span>•</span>
             <span>Testnet</span>
             <span>•</span>
