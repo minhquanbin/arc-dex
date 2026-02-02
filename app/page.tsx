@@ -27,6 +27,25 @@ const TOKEN_MESSENGER_V2_FEE_ABI = [
   },
 ] as const;
 
+const TOKEN_MESSENGER_V2_ABI = [
+  {
+    type: "function",
+    name: "depositForBurnWithHook",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "amount", type: "uint256" },
+      { name: "destinationDomain", type: "uint32" },
+      { name: "mintRecipient", type: "bytes32" },
+      { name: "burnToken", type: "address" },
+      { name: "destinationCaller", type: "bytes32" },
+      { name: "maxFee", type: "uint256" },
+      { name: "minFinalityThreshold", type: "uint32" },
+      { name: "hookData", type: "bytes" },
+    ],
+    outputs: [{ name: "nonce", type: "uint64" }],
+  },
+] as const;
+
 const FEE_RECEIVER = (process.env.NEXT_PUBLIC_FEE_COLLECTOR ||
   "0xA87Bd559fd6F2646225AcE941bA6648Ec1BAA9AF") as `0x${string}`;
 const FEE_USDC = process.env.NEXT_PUBLIC_FEE_USDC || "0.01";
@@ -153,6 +172,10 @@ export default function Home() {
       // Defaults from env (fallback if router getters fail)
       let feeCollector = FEE_RECEIVER;
       let feeAmount = computeServiceFee();
+      let tokenMessengerV2Addr: `0x${string}` | "" = "";
+      let destinationCallerBytes32: `0x${string}` | "" = "";
+      let tokenMessengerV2Addr: `0x${string}` | "" = "";
+      let destinationCallerBytes32: `0x${string}` | "" = "";
 
       console.log("📝 Starting bridge with Router:", router);
       console.log("💰 USDC address (env/default):", arcUsdc);
@@ -161,28 +184,34 @@ export default function Home() {
       // If this fails, we can't trust balance/allowance checks and the tx may silently revert.
       setStatus("Đang đọc cấu hình Router (usdc/serviceFee/feeCollector/destinationCaller)...");
       try {
-        const [routerUsdc, routerFeeCollector, routerServiceFee, routerDestCaller] = await Promise.all([
-          publicClient.readContract({
-            address: router,
-            abi: ROUTER_ABI,
-            functionName: "usdc",
-          }) as Promise<`0x${string}`>,
-          publicClient.readContract({
-            address: router,
-            abi: ROUTER_ABI,
-            functionName: "feeCollector",
-          }) as Promise<`0x${string}`>,
-          publicClient.readContract({
-            address: router,
-            abi: ROUTER_ABI,
-            functionName: "serviceFee",
-          }) as Promise<bigint>,
-          publicClient.readContract({
-            address: router,
-            abi: ROUTER_ABI,
-            functionName: "destinationCaller",
-          }) as Promise<`0x${string}`>,
-        ]);
+        const [routerUsdc, routerFeeCollector, routerServiceFee, routerDestCaller, routerTokenMessengerV2] =
+          await Promise.all([
+            publicClient.readContract({
+              address: router,
+              abi: ROUTER_ABI,
+              functionName: "usdc",
+            }) as Promise<`0x${string}`>,
+            publicClient.readContract({
+              address: router,
+              abi: ROUTER_ABI,
+              functionName: "feeCollector",
+            }) as Promise<`0x${string}`>,
+            publicClient.readContract({
+              address: router,
+              abi: ROUTER_ABI,
+              functionName: "serviceFee",
+            }) as Promise<bigint>,
+            publicClient.readContract({
+              address: router,
+              abi: ROUTER_ABI,
+              functionName: "destinationCaller",
+            }) as Promise<`0x${string}`>,
+            publicClient.readContract({
+              address: router,
+              abi: ROUTER_ABI,
+              functionName: "tokenMessengerV2",
+            }) as Promise<`0x${string}`>,
+          ]);
 
         console.log("✅ Router USDC (on-chain):", routerUsdc);
         console.log("✅ Router feeCollector (on-chain):", routerFeeCollector);
@@ -193,12 +222,17 @@ export default function Home() {
         arcUsdc = routerUsdc;
         feeCollector = routerFeeCollector;
         feeAmount = routerServiceFee;
+        tokenMessengerV2Addr = routerTokenMessengerV2;
+        destinationCallerBytes32 = routerDestCaller;
+        tokenMessengerV2Addr = routerTokenMessengerV2;
+        destinationCallerBytes32 = routerDestCaller;
 
         // Show the critical config in UI too (so you can screenshot it)
         setStatus(
           "✅ Router config:\n" +
             `Router: ${router}\n` +
             `USDC (burnToken): ${routerUsdc}\n` +
+            `TokenMessengerV2: ${routerTokenMessengerV2}\n` +
             `FeeCollector: ${routerFeeCollector}\n` +
             `ServiceFee: ${Number(routerServiceFee) / 1e6} USDC\n` +
             `DestinationCaller: ${routerDestCaller}`
@@ -375,9 +409,71 @@ export default function Home() {
           maxFee = maxFeeHighest;
         } catch (simErr2: any) {
           console.error("simulateContract error (2nd try):", simErr2);
-          throw new Error(
-            `Simulate thất bại: ${simErr2?.shortMessage || simErr2?.message || "Unknown error"}`
+
+          // If Router mode keeps reverting, fall back to 3-step flow (fee transfer + approve + direct burn)
+          if (!tokenMessengerV2Addr || !destinationCallerBytes32) {
+            throw new Error(
+              `Router.bridge vẫn revert và không đọc được tokenMessengerV2/destinationCaller từ router. ` +
+                `Chi tiết: ${simErr2?.shortMessage || simErr2?.message || "Unknown error"}`
+            );
+          }
+
+          setStatus(
+            "Router.bridge vẫn revert. Chuyển sang chế độ 3 giao dịch: (1) transfer fee (2) approve TokenMessengerV2 (3) burn+message..."
           );
+
+          // 1) transfer service fee
+          const feeTx = await walletClient.writeContract({
+            address: arcUsdc,
+            abi: ERC20_ABI,
+            functionName: "transfer",
+            args: [feeCollector, feeAmount],
+          });
+          await publicClient.waitForTransactionReceipt({ hash: feeTx });
+
+          // 2) approve TokenMessengerV2 for bridge amount
+          const approveTx = await walletClient.writeContract({
+            address: arcUsdc,
+            abi: ERC20_ABI,
+            functionName: "approve",
+            args: [tokenMessengerV2Addr, amount],
+          });
+          await publicClient.waitForTransactionReceipt({ hash: approveTx });
+
+          // 3) burn+message (direct)
+          const burnTx = await walletClient.writeContract({
+            address: tokenMessengerV2Addr,
+            abi: TOKEN_MESSENGER_V2_ABI,
+            functionName: "depositForBurnWithHook",
+            args: [
+              amount,
+              dest.domain,
+              addressToBytes32(recipientAddr),
+              arcUsdc,
+              destinationCallerBytes32,
+              maxFee,
+              minFinality,
+              finalHookData,
+            ],
+          });
+
+          setTxHash(burnTx);
+          setStatus("Đang chờ xác nhận giao dịch burn+message...");
+          const receipt = await publicClient.waitForTransactionReceipt({ hash: burnTx });
+
+          if (receipt.status === "success") {
+            setStatus(
+              `✅ Bridge thành công (3-step)!\n\n` +
+                `Số lượng: ${Number(amount) / 1e6} USDC\n` +
+                `Từ: ARC Testnet\n` +
+                `Đến: ${dest.name}\n` +
+                `Recipient: ${recipientAddr}\n\n` +
+                `⏳ Chờ 2-5 phút để Circle Forwarding Service xử lý...`
+            );
+            return;
+          }
+
+          throw new Error(`Giao dịch burn+message bị revert`);
         }
       }
 
