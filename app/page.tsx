@@ -59,6 +59,7 @@ export default function Home() {
 
   const [tab, setTab] = useState<TabType>("bridge");
   const [destKey, setDestKey] = useState(DESTS[0].key);
+  const [destOpen, setDestOpen] = useState(false);
   const [amountUsdc, setAmountUsdc] = useState("");
   const [recipient, setRecipient] = useState<string>("");
   const [memo, setMemo] = useState<string>("");
@@ -106,7 +107,7 @@ export default function Home() {
       }
     } catch (error: any) {
       console.error("Failed to switch network:", error);
-      setStatus(`Lỗi chuyển mạng: ${error?.message || "Unknown error"}`);
+      setStatus(`Network switch failed: ${error?.message || "Unknown error"}`);
     }
   }
 
@@ -137,9 +138,9 @@ export default function Home() {
     const maxFeeCap = amount - 1n; // 1 base unit = 0.000001 USDC
     if (maxFeeToUse > maxFeeCap) {
       throw new Error(
-        `Amount quá nhỏ cho maxFee. ` +
+        `Amount is too small for maxFee constraints. ` +
           `Amount: ${Number(amount) / 1e6} USDC, ` +
-          `maxFee cần: ${Number(maxFeeToUse) / 1e6} USDC, ` +
+          `computed maxFee: ${Number(maxFeeToUse) / 1e6} USDC, ` +
           `minFee: ${Number(minForwardFee) / 1e6} USDC (domain ${destinationDomain})`
       );
     }
@@ -154,11 +155,11 @@ export default function Home() {
       setLoading(true);
 
       if (!isConnected || !address || !walletClient || !publicClient) {
-        throw new Error("Vui lòng kết nối ví trước");
+        throw new Error("Please connect your wallet first");
       }
 
       if (isWrongNetwork) {
-        throw new Error(`Vui lòng chuyển sang ARC Testnet (Chain ID: ${expectedChainId})`);
+        throw new Error(`Please switch to ARC Testnet (Chain ID: ${expectedChainId})`);
       }
 
       // ✅ Router contract (1 tx: thu phí + bridge)
@@ -180,7 +181,7 @@ export default function Home() {
 
       // ✅ Read config from Router on-chain to avoid env mismatch
       // If this fails, we can't trust balance/allowance checks and the tx may silently revert.
-      setStatus("Đang đọc cấu hình Router (usdc/serviceFee/feeCollector/destinationCaller)...");
+      setStatus("Reading Router config (usdc/serviceFee/feeCollector/destinationCaller)...");
       try {
         const [routerUsdc, routerFeeCollector, routerServiceFee, routerDestCaller, routerTokenMessengerV2] =
           await Promise.all([
@@ -225,7 +226,7 @@ export default function Home() {
 
         // Show the critical config in UI too (so you can screenshot it)
         setStatus(
-          "✅ Router config:\n" +
+          "Router config:\n" +
             `Router: ${router}\n` +
             `USDC (burnToken): ${routerUsdc}\n` +
             `TokenMessengerV2: ${routerTokenMessengerV2}\n` +
@@ -241,16 +242,15 @@ export default function Home() {
           );
         }
       } catch (readCfgErr: any) {
-        console.error("❌ Không đọc được cấu hình Router:", readCfgErr);
+        console.error("Failed to read Router config:", readCfgErr);
         throw new Error(
-          `Không đọc được cấu hình Router on-chain (usdc/serviceFee/feeCollector/destinationCaller). ` +
-            `Nếu dApp đang check allowance/balance sai token, Router.bridge sẽ revert. ` +
-            `Chi tiết: ${readCfgErr?.shortMessage || readCfgErr?.message || "Unknown error"}`
+          `Failed to read Router on-chain config (usdc/serviceFee/feeCollector/destinationCaller). ` +
+            `Details: ${readCfgErr?.shortMessage || readCfgErr?.message || "Unknown error"}`
         );
       }
 
       // ✅ Step 1: Validate inputs
-      setStatus("Đang validate thông tin...");
+      setStatus("Validating inputs...");
 
       validateAmount(amountUsdc);
       if (memo) validateMemo(memo);
@@ -260,12 +260,12 @@ export default function Home() {
       try {
         ({ amount, maxFee } = computeMaxFee(amountUsdc, dest.domain));
       } catch (feeErr: any) {
-        throw new Error(`Lỗi tính phí: ${feeErr.message}`);
+        throw new Error(`Fee calculation error: ${feeErr.message}`);
       }
 
       // ✅ Circle rule: maxFee must be >= TokenMessengerV2.getMinFeeAmount(amount) (or burn reverts)
       // We read tokenMessengerV2 from router to avoid hardcoding.
-      setStatus("Đang đọc minFee từ TokenMessengerV2...");
+      setStatus("Reading minFee from TokenMessengerV2...");
       let minProtocolFee = 0n;
       try {
         const tokenMessenger = (await publicClient.readContract({
@@ -286,7 +286,7 @@ export default function Home() {
           // Still must satisfy contract rule: maxFee < amount.
           const bufferedMinFee = (minProtocolFee * 110n) / 100n; // +10%
           console.warn(
-            `⚠️ maxFee (${Number(maxFee) / 1e6}) < minProtocolFee (${Number(minProtocolFee) / 1e6}). ` +
+            `maxFee (${Number(maxFee) / 1e6}) < minProtocolFee (${Number(minProtocolFee) / 1e6}). ` +
               `Bumping maxFee to ${Number(bufferedMinFee) / 1e6} (+10%).`
           );
 
@@ -294,7 +294,7 @@ export default function Home() {
           maxFee = bufferedMinFee > maxFeeCap ? maxFeeCap : bufferedMinFee;
         }
       } catch (minFeeErr: any) {
-        console.warn("⚠️ Không đọc được getMinFeeAmount, tiếp tục dùng maxFee hiện tại:", minFeeErr);
+        console.warn("Failed to read getMinFeeAmount, continuing with current maxFee:", minFeeErr);
       }
 
       console.log("💰 Amounts:", {
@@ -307,13 +307,13 @@ export default function Home() {
       // ✅ CRITICAL: Verify maxFee < amount
       if (maxFee >= amount) {
         throw new Error(
-          `Lỗi tính toán: maxFee (${Number(maxFee) / 1e6}) phải nhỏ hơn amount (${Number(amount) / 1e6}). ` +
-            `Vui lòng tăng amount hoặc liên hệ support.`
+          `Invalid fee: maxFee (${Number(maxFee) / 1e6}) must be less than amount (${Number(amount) / 1e6}). ` +
+            `Please increase the amount.`
         );
       }
 
       // ✅ Step 2: Check balance (amount + service fee)
-      setStatus("Đang kiểm tra số dư USDC...");
+      setStatus("Checking USDC balance...");
       const bal = await publicClient.readContract({
         address: arcUsdc,
         abi: ERC20_ABI,
@@ -326,10 +326,10 @@ export default function Home() {
       const totalNeed = amount + feeAmount;
       if (bal < totalNeed) {
         throw new Error(
-          `Số dư USDC không đủ.\n` +
-            `Cần: ${(Number(totalNeed) / 1e6).toFixed(6)} USDC (bridge + phí dịch vụ)\n` +
-            `Có: ${(Number(bal) / 1e6).toFixed(6)} USDC\n` +
-            `Phí dịch vụ: ${Number(feeAmount) / 1e6} USDC → ${feeCollector}`
+          `Insufficient USDC balance.\n` +
+            `Required: ${(Number(totalNeed) / 1e6).toFixed(6)} USDC (bridge + service fee)\n` +
+            `Available: ${(Number(bal) / 1e6).toFixed(6)} USDC\n` +
+            `Service fee: ${Number(feeAmount) / 1e6} USDC → ${feeCollector}`
         );
       }
 
@@ -338,7 +338,7 @@ export default function Home() {
       try {
         recipientAddr = recipient.trim() ? validateRecipient(recipient.trim()) : address;
       } catch (err: any) {
-        throw new Error(`Recipient không hợp lệ: ${err.message}`);
+        throw new Error(`Invalid recipient: ${err.message}`);
       }
 
       // ✅ Step 4: Build hookData (memo-only bytes)
@@ -349,17 +349,13 @@ export default function Home() {
       // 2) approve TokenMessengerV2 for bridge amount
       // 3) burn+message (direct)
       if (!tokenMessengerV2Addr || !destinationCallerBytes32) {
-        throw new Error(
-          "Không đọc được tokenMessengerV2/destinationCaller từ Router (cần cho 3-step flow)."
-        );
+        throw new Error("Failed to read tokenMessengerV2/destinationCaller from Router (required for 3-step flow)." );
       }
 
-      setStatus(
-        "Chế độ 3 giao dịch: (1) transfer fee (2) approve TokenMessengerV2 (3) burn+message..."
-      );
+      setStatus("3-step mode: (1) fee transfer (2) approve TokenMessengerV2 (3) burn+message...");
 
       // (Optional) check allowance for TokenMessengerV2
-      setStatus("Đang kiểm tra allowance TokenMessengerV2...");
+      setStatus("Checking TokenMessengerV2 allowance...");
       const tmAllowance = (await publicClient.readContract({
         address: arcUsdc,
         abi: ERC20_ABI,
@@ -368,7 +364,7 @@ export default function Home() {
       })) as bigint;
 
       if (tmAllowance < amount) {
-        setStatus("Vui lòng approve USDC cho TokenMessengerV2 trong ví...");
+        setStatus("Please approve USDC for TokenMessengerV2 in your wallet...");
         const approveTx = await walletClient.writeContract({
           address: arcUsdc,
           abi: ERC20_ABI,
@@ -378,7 +374,7 @@ export default function Home() {
         await publicClient.waitForTransactionReceipt({ hash: approveTx });
       }
 
-      setStatus("Đang gửi giao dịch phí dịch vụ (transfer)...");
+      setStatus("Sending service fee transfer...");
       const feeTx = await walletClient.writeContract({
         address: arcUsdc,
         abi: ERC20_ABI,
@@ -387,7 +383,7 @@ export default function Home() {
       });
       await publicClient.waitForTransactionReceipt({ hash: feeTx });
 
-      setStatus("Đang gửi giao dịch burn+message...");
+      setStatus("Sending burn+message transaction...");
       const burnTx = await walletClient.writeContract({
         address: tokenMessengerV2Addr,
         abi: TOKEN_MESSENGER_V2_ABI,
@@ -405,24 +401,24 @@ export default function Home() {
       });
 
       setTxHash(burnTx);
-      setStatus("Đang chờ xác nhận giao dịch burn+message...");
+      setStatus("Waiting for burn+message confirmation...");
       const receipt = await publicClient.waitForTransactionReceipt({ hash: burnTx });
 
       if (receipt.status === "success") {
         setStatus(
-          `✅ Bridge thành công (3-step)!\n\n` +
-            `Số lượng: ${Number(amount) / 1e6} USDC\n` +
-            `Từ: ARC Testnet\n` +
-            `Đến: ${dest.name}\n` +
+          `Success!\n\n` +
+            `Amount: ${Number(amount) / 1e6} USDC\n` +
+            `From: ARC Testnet\n` +
+            `To: ${dest.name}\n` +
             `Recipient: ${recipientAddr}\n\n` +
-            `⏳ Chờ 2-5 phút để Circle Forwarding Service xử lý...`
+            `Waiting for forwarding...`
         );
       } else {
-        throw new Error("Giao dịch burn+message bị revert");
+        throw new Error("burn+message transaction reverted");
       }
     } catch (err: any) {
       console.error("Bridge error:", err);
-      setStatus(`❌ Lỗi: ${err?.message || err?.shortMessage || "Unknown error"}`);
+      setStatus(`Error: ${err?.message || err?.shortMessage || "Unknown error"}`);
     } finally {
       setLoading(false);
     }
@@ -435,9 +431,8 @@ export default function Home() {
         <div className="mb-8 flex items-center justify-between">
           <div>
             <h1 className="bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-4xl font-bold text-transparent">
-              ARC Bridge dApp
+              Arc Bridge
             </h1>
-            <p className="mt-2 text-gray-600">Circle CCTP + Forwarding Service (3-step)</p>
           </div>
           <ConnectButton />
         </div>
@@ -446,17 +441,15 @@ export default function Home() {
         {isWrongNetwork && (
           <div className="mb-6 rounded-xl border-2 border-orange-300 bg-orange-50 p-4">
             <div className="flex items-start gap-3">
-              <div className="text-2xl">⚠️</div>
+              <div className="text-2xl">!</div>
               <div className="flex-1">
-                <div className="font-semibold text-orange-900">Sai mạng</div>
-                <div className="mt-1 text-sm text-orange-700">
-                  Vui lòng chuyển sang ARC Testnet (Chain ID: {expectedChainId})
-                </div>
+                <div className="font-semibold text-orange-900">Wrong network</div>
+                <div className="mt-1 text-sm text-orange-700">Please switch to ARC Testnet (Chain ID: {expectedChainId})</div>
                 <button
                   onClick={switchToARC}
                   className="mt-3 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700"
                 >
-                  Chuyển sang ARC Testnet
+                  Switch to ARC Testnet
                 </button>
               </div>
             </div>
@@ -498,28 +491,58 @@ export default function Home() {
                     <div className="space-y-5">
                       {/* Destination Chain */}
                       <div>
-                        <label className="mb-2 block text-sm font-medium text-gray-700">
-                          Chain đích
-                        </label>
-                        <select
-                          value={destKey}
-                          onChange={(e) => setDestKey(e.target.value)}
-                          disabled={loading}
-                          className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 shadow-sm transition-all focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-200 disabled:cursor-not-allowed disabled:bg-gray-100"
-                        >
-                          {DESTS.map((d) => (
-                            <option key={d.key} value={d.key}>
-                              {d.name} (Domain {d.domain})
-                            </option>
-                          ))}
-                        </select>
+                        <label className="mb-2 block text-sm font-medium text-gray-700">Destination chain</label>
+                        <div className="relative">
+                          <button
+                            type="button"
+                            onClick={() => setDestOpen((v) => !v)}
+                            disabled={loading}
+                            className="flex w-full items-center justify-between gap-3 rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 shadow-sm transition-all focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-200 disabled:cursor-not-allowed disabled:bg-gray-100"
+                          >
+                            <div className="flex items-center gap-3">
+                              <img
+                                src={dest.iconPath}
+                                alt={dest.name}
+                                className="h-6 w-6 rounded-md"
+                              />
+                              <span className="font-medium">{dest.name}</span>
+                            </div>
+                            <span className="text-gray-400">▾</span>
+                          </button>
+
+                          {destOpen && (
+                            <div className="absolute z-10 mt-2 w-full overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
+                              <div className="max-h-72 overflow-auto py-1">
+                                {DESTS.map((d) => (
+                                  <button
+                                    key={d.key}
+                                    type="button"
+                                    onClick={() => {
+                                      setDestKey(d.key);
+                                      setDestOpen(false);
+                                    }}
+                                    className={[
+                                      "flex w-full items-center gap-3 px-4 py-2 text-left text-sm hover:bg-gray-50",
+                                      d.key === destKey ? "bg-gray-50" : "",
+                                    ].join(" ")}
+                                  >
+                                    <img
+                                      src={d.iconPath}
+                                      alt={d.name}
+                                      className="h-6 w-6 rounded-md"
+                                    />
+                                    <span className="font-medium text-gray-900">{d.name}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </div>
 
                       {/* Recipient */}
                       <div>
-                        <label className="mb-2 block text-sm font-medium text-gray-700">
-                          Địa chỉ nhận (tùy chọn)
-                        </label>
+                        <label className="mb-2 block text-sm font-medium text-gray-700">Recipient address</label>
                         <input
                           type="text"
                           value={recipient}
@@ -528,37 +551,34 @@ export default function Home() {
                           disabled={loading}
                           className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 shadow-sm transition-all focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-200 disabled:cursor-not-allowed disabled:bg-gray-100"
                         />
-                        <div className="mt-1 text-xs text-gray-500">Để trống = gửi về ví hiện tại</div>
+
                       </div>
 
                       {/* Memo */}
                       <div>
-                        <label className="mb-2 block text-sm font-medium text-gray-700">Memo (on-chain)</label>
+                        <label className="mb-2 block text-sm font-medium text-gray-700">Message</label>
                         <input
                           type="text"
                           value={memo}
                           onChange={(e) => setMemo(e.target.value)}
-                          placeholder="Nhập nội dung (sẽ nhúng vào hookData)"
+                          placeholder="Leave a message"
                           disabled={loading}
                           className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 shadow-sm transition-all focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-200 disabled:cursor-not-allowed disabled:bg-gray-100"
                         />
-                        <div className="mt-1 text-xs text-gray-500">
-                          Memo được encode vào <code className="rounded bg-gray-100 px-1">hookData</code>; để xử lý ở chain đích cần
-                          contract/hook receiver tương ứng.
-                        </div>
+
                       </div>
 
                       {/* Amount */}
                       <div>
-                        <label className="mb-2 block text-sm font-medium text-gray-700">Số lượng</label>
+                        <label className="mb-2 block text-sm font-medium text-gray-700">Amount</label>
                         <div className="relative">
                           <input
                             type="number"
                             step="0.01"
-                            min="0.5"
+                            min="5"
                             value={amountUsdc}
                             onChange={(e) => setAmountUsdc(e.target.value)}
-                            placeholder="Tối thiểu 0.5 USDC"
+                            placeholder="Minimum 5 USDC"
                             disabled={loading}
                             className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 pr-16 text-gray-900 shadow-sm transition-all focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-200 disabled:cursor-not-allowed disabled:bg-gray-100"
                           />
@@ -566,31 +586,31 @@ export default function Home() {
                             USDC
                           </div>
                         </div>
-                        <div className="mt-1 text-xs text-gray-500">Tối thiểu 0.5 USDC</div>
+                        <div className="mt-1 text-xs text-gray-500">Suggested minimum: 5 USDC</div>
                       </div>
 
                       {/* Info Box */}
                       <div className="rounded-xl bg-gradient-to-r from-purple-50 to-blue-50 p-4">
                         <div className="space-y-2 text-sm">
                           <div className="flex justify-between">
-                            <span className="text-gray-600">Số tiền bridge</span>
+                            <span className="text-gray-600">Bridge amount</span>
                             <span className="font-semibold text-gray-900">{amountUsdc || "0"} USDC</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-gray-600">Phí dịch vụ</span>
+                            <span className="text-gray-600">Service fee</span>
                             <span className="font-semibold text-gray-900">{FEE_USDC} USDC</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-gray-600">Từ</span>
+                            <span className="text-gray-600">From</span>
                             <span className="font-semibold text-gray-900">ARC Testnet</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-gray-600">Đến</span>
+                            <span className="text-gray-600">To</span>
                             <span className="font-semibold text-gray-900">{dest.name}</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-gray-600">Thời gian ước tính</span>
-                            <span className="font-semibold text-gray-900">~2-5 phút</span>
+                            <span className="text-gray-600">Estimated time</span>
+                            <span className="font-semibold text-gray-900">~5s - 2min</span>
                           </div>
                         </div>
                       </div>
@@ -598,10 +618,10 @@ export default function Home() {
                       {/* Bridge Button */}
                       <button
                         onClick={onBridge}
-                        disabled={loading || isWrongNetwork || !amountUsdc || parseFloat(amountUsdc) < 0.5}
+                        disabled={loading || isWrongNetwork || !amountUsdc || parseFloat(amountUsdc) < 5}
                         className={[
                           "w-full rounded-xl px-6 py-4 font-semibold text-white shadow-lg transition-all",
-                          loading || isWrongNetwork || !amountUsdc || parseFloat(amountUsdc) < 0.5
+                          loading || isWrongNetwork || !amountUsdc || parseFloat(amountUsdc) < 5
                             ? "cursor-not-allowed bg-gray-300"
                             : "bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 active:scale-[0.98]",
                         ].join(" ")}
@@ -609,10 +629,10 @@ export default function Home() {
                         {loading ? (
                           <div className="flex items-center justify-center gap-2">
                             <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                            <span>Đang xử lý...</span>
+                            <span>Processing...</span>
                           </div>
                         ) : isWrongNetwork ? (
-                          "Sai mạng"
+                          "Wrong network"
                         ) : (
                           "Bridge USDC"
                         )}
@@ -623,9 +643,9 @@ export default function Home() {
                         <div
                           className={[
                             "rounded-xl border p-4 text-sm",
-                            status.includes("thành công") || status.includes("✅")
+                            status.toLowerCase().includes("success")
                               ? "border-green-200 bg-green-50 text-green-800"
-                              : status.includes("Lỗi") || status.includes("❌")
+                              : status.toLowerCase().includes("error")
                               ? "border-red-200 bg-red-50 text-red-800"
                               : "border-blue-200 bg-blue-50 text-blue-800",
                           ].join(" ")}
@@ -643,7 +663,7 @@ export default function Home() {
                                   rel="noopener noreferrer"
                                   className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-green-700 hover:text-green-900 underline"
                                 >
-                                  Xem giao dịch →
+                                  View transaction →
                                 </a>
                               )}
                             </div>
@@ -652,25 +672,15 @@ export default function Home() {
                       )}
                     </div>
 
-                    {/* Footer Note */}
+                    {/* Donate */}
                     <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
-                      <div className="text-xs text-gray-600">
-                        <div className="mb-2 font-semibold text-gray-700">📝 Lưu ý quan trọng:</div>
-                        <ul className="ml-4 list-disc space-y-1">
-                          <li>Thu phí dịch vụ {FEE_USDC} USDC/lệnh → {FEE_RECEIVER}</li>
-                          <li>Chế độ 3 giao dịch: (1) fee transfer (2) approve TokenMessengerV2 (3) burn+message</li>
-                          <li>Memo được nhúng vào hookData (để xử lý on-chain ở chain đích cần hook/receiver tương ứng)</li>
-                          <li>Không cần gas token ở chain đích (Circle Forwarding Service)</li>
-                          <li>Giao dịch hoàn tất trong 2-5 phút</li>
-                          <li>Số lượng tối thiểu: 0.5 USDC</li>
-                        </ul>
-                      </div>
+                      <div className="text-xs text-gray-600">donate: 0xA87Bd559fd6F2646225AcE941bA6648Ec1BAA9AF</div>
                     </div>
                   </>
                 ) : (
                   <div className="py-12 text-center">
-                    <div className="mb-4 text-4xl">👛</div>
-                    <p className="text-gray-600">Kết nối ví để bắt đầu</p>
+                    <div className="mb-4 text-4xl">Wallet</div>
+                    <p className="text-gray-600">Connect your wallet to start</p>
                   </div>
                 )}
               </div>
@@ -680,19 +690,9 @@ export default function Home() {
 
         {/* Footer */}
         <div className="mt-8 text-center">
-          <div className="inline-flex items-center gap-4 text-xs text-gray-500">
-            <span>Powered by Circle CCTP + Router</span>
-            <span>•</span>
-            <span>Testnet</span>
-            <span>•</span>
-            <a
-              href="https://docs.circle.com/stablecoins/cctp"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-purple-600 hover:text-purple-700 underline"
-            >
-              📚 Tài liệu
-            </a>
+          <div className="text-xs text-gray-500">Powered by 1992evm</div>
+          <div className="mt-1 text-[11px] text-gray-400">
+            Chain logos are sourced from Chainlink Docs and Codex Docs.
           </div>
         </div>
       </div>

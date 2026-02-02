@@ -250,7 +250,7 @@ export const DEST_CALLER_ZERO = addressToBytes32("0x0000000000000000000000000000
 export function validateRecipient(address: string): `0x${string}` {
   const cleaned = address.trim();
   if (!/^0x[a-fA-F0-9]{40}$/.test(cleaned)) {
-    throw new Error("Địa chỉ recipient không hợp lệ. Phải là địa chỉ Ethereum 42 ký tự (0x...)");
+    throw new Error("Invalid recipient address. Expected a 42-character Ethereum address (0x...)");
   }
   return cleaned as `0x${string}`;
 }
@@ -263,9 +263,9 @@ export function validateAmount(amountStr: string): number {
   if (isNaN(num) || num <= 0) {
     throw new Error("Amount phải là số dương lớn hơn 0");
   }
-  // Minimum: serviceFee (0.01) + minForwardFee (0.2) + buffer (0.3) = ~0.5 USDC
-  if (num < 0.5) {
-    throw new Error("Amount tối thiểu 0.5 USDC (để cover service fee + forwarding fee)");
+  // Recommended minimum for smoother forwarding/attestation on testnets.
+  if (num < 5) {
+    throw new Error("Minimum amount is 5 USDC");
   }
   return num;
 }
@@ -275,16 +275,16 @@ export function validateAmount(amountStr: string): number {
  */
 export function validateMemo(memo: string): void {
   if (!memo) return;
-  
+
   const encoder = new TextEncoder();
   const memoBytes = encoder.encode(memo);
-  
+
   if (memoBytes.length > 128) {
-    throw new Error(`Memo quá dài (${memoBytes.length} bytes). Tối đa 128 bytes.`);
+    throw new Error(`Message is too long (${memoBytes.length} bytes). Max is 128 bytes.`);
   }
-  
-  // Warning với ký tự đặc biệt
+
+  // Note: non-ASCII characters may take more bytes.
   if (/[^\x00-\x7F]/.test(memo)) {
-    console.warn("⚠️ Memo chứa ký tự non-ASCII (tiếng Việt có dấu), có thể chiếm nhiều bytes hơn!");
+    console.warn("Message contains non-ASCII characters and may use more bytes.");
   }
 }
