@@ -142,38 +142,7 @@ export default function Home() {
   const [history, setHistory] = useState<BridgeHistoryItem[]>([]);
   const [historyPage, setHistoryPage] = useState(0);
 
-  type BridgeHistoryItem = {
-    ts: number;
-    from: `0x${string}`;
-    to: `0x${string}`;
-    txHash: `0x${string}`;
-    memo?: string;
-  };
-
-  const [history, setHistory] = useState<BridgeHistoryItem[]>([]);
-  const [historyPage, setHistoryPage] = useState(0);
-
   const dest = useMemo(() => DESTS.find((d) => d.key === destKey) || DESTS[0], [destKey]);
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem("arc_bridge_history");
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as BridgeHistoryItem[];
-      if (Array.isArray(parsed)) setHistory(parsed);
-    } catch {
-      // ignore
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem("arc_bridge_history", JSON.stringify(history.slice(0, 200)));
-    } catch {
-      // ignore
-    }
-  }, [history]);
 
   useEffect(() => {
     try {
@@ -863,61 +832,6 @@ export default function Home() {
                     {/* Donate */}
                     <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
                       <div className="text-xs text-gray-600">Donate: 0xA87Bd559fd6F2646225AcE941bA6648Ec1BAA9AF</div>
-                    </div>
-
-                    {/* Bridge History */}
-                    <div className="rounded-xl border border-gray-200 bg-white p-4">
-                      <div className="mb-3 flex items-center justify-between">
-                        <div className="text-sm font-semibold text-gray-900">Bridge history</div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setHistoryPage((p) => Math.max(0, p - 1))}
-                            disabled={historyPage === 0}
-                            className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            Prev
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setHistoryPage((p) => p + 1)}
-                            disabled={(historyPage + 1) * 10 >= history.length}
-                            className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            Next
-                          </button>
-                        </div>
-                      </div>
-
-                      {history.length === 0 ? (
-                        <div className="text-sm text-gray-500">No transactions yet.</div>
-                      ) : (
-                        <div className="space-y-2">
-                          {history.slice(historyPage * 10, historyPage * 10 + 10).map((h) => (
-                            <div key={`${h.txHash}-${h.ts}`} className="rounded-lg bg-gray-50 p-3">
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <div className="text-xs text-gray-600">
-                                  {new Date(h.ts).toLocaleString()}
-                                </div>
-                                <a
-                                  href={`https://testnet.arcscan.app/tx/${h.txHash}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-xs font-semibold text-[#725a7a] underline"
-                                >
-                                  TX
-                                </a>
-                              </div>
-                              <div className="mt-1 text-sm text-gray-900">
-                                <span className="font-semibold">{h.from.slice(0, 6)}…{h.from.slice(-4)}</span>
-                                <span className="mx-2 text-gray-400">→</span>
-                                <span className="font-semibold">{h.to.slice(0, 6)}…{h.to.slice(-4)}</span>
-                              </div>
-                              {h.memo && <div className="mt-1 text-xs text-gray-600">Message: {h.memo}</div>}
-                            </div>
-                          ))}
-                        </div>
-                      )}
                     </div>
 
                     {/* Bridge History */}
