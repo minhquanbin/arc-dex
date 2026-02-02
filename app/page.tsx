@@ -57,7 +57,7 @@ export default function Home() {
                 decimals: 6,
               },
               rpcUrls: [process.env.NEXT_PUBLIC_ARC_RPC_URL || 'https://rpc.testnet.arc.network'],
-              blockExplorerUrls: ['https://explorer.testnet.arc.network'],
+              blockExplorerUrls: ['https://testnet.arcscan.app'],
             }],
           });
         } else {
