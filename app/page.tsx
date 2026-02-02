@@ -174,8 +174,6 @@ export default function Home() {
       let feeAmount = computeServiceFee();
       let tokenMessengerV2Addr: `0x${string}` | "" = "";
       let destinationCallerBytes32: `0x${string}` | "" = "";
-      let tokenMessengerV2Addr: `0x${string}` | "" = "";
-      let destinationCallerBytes32: `0x${string}` | "" = "";
 
       console.log("📝 Starting bridge with Router:", router);
       console.log("💰 USDC address (env/default):", arcUsdc);
@@ -222,8 +220,6 @@ export default function Home() {
         arcUsdc = routerUsdc;
         feeCollector = routerFeeCollector;
         feeAmount = routerServiceFee;
-        tokenMessengerV2Addr = routerTokenMessengerV2;
-        destinationCallerBytes32 = routerDestCaller;
         tokenMessengerV2Addr = routerTokenMessengerV2;
         destinationCallerBytes32 = routerDestCaller;
 
