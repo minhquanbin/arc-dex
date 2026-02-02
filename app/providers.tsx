@@ -9,25 +9,49 @@ import { defineChain } from "viem";
 const arc = defineChain({
   id: Number(process.env.NEXT_PUBLIC_ARC_CHAIN_ID || 12345),
   name: "ARC Testnet",
-  nativeCurrency: { name: "ARC", symbol: "ARC", decimals: 18 },
-  rpcUrls: {
-    default: { http: [process.env.NEXT_PUBLIC_ARC_RPC_URL || "https://rpc.testnet.arc.network"] },
+  nativeCurrency: { 
+    name: "ARC", 
+    symbol: "ARC", 
+    decimals: 18 
   },
+  rpcUrls: {
+    default: { 
+      http: [process.env.NEXT_PUBLIC_ARC_RPC_URL || "https://rpc.testnet.arc.network"] 
+    },
+  },
+  blockExplorers: {
+    default: { 
+      name: "ARC Explorer", 
+      url: "https://explorer.testnet.arc.network" 
+    },
+  },
+  testnet: true,
 });
 
 const config = createConfig({
   chains: [arc],
-  transports: { [arc.id]: http(arc.rpcUrls.default.http[0]) },
+  transports: { 
+    [arc.id]: http(arc.rpcUrls.default.http[0]) 
+  },
   ssr: true,
 });
 
-const qc = new QueryClient();
+const qc = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  },
+});
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <WagmiProvider config={config}>
       <QueryClientProvider client={qc}>
-        <RainbowKitProvider>{children}</RainbowKitProvider>
+        <RainbowKitProvider modalSize="compact">
+          {children}
+        </RainbowKitProvider>
       </QueryClientProvider>
     </WagmiProvider>
   );
