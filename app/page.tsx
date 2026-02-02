@@ -576,7 +576,11 @@ export default function Home() {
                     className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm hover:bg-gray-50"
                   >
                     <span className="flex items-center gap-1">
-                      <span>{account?.displayBalance}</span>
+                      <span>
+                        {(account?.displayBalance || "")
+                          .replace(/\s*USDC\b/gi, "")
+                          .trim()}
+                      </span>
                       <UsdcIcon className="h-4 w-4" />
                     </span>
                     <span className="text-gray-400">|</span>
@@ -638,204 +642,207 @@ export default function Home() {
             {tab === "bridge" && (
               <div className="space-y-6">
                 {isConnected ? (
-                  <>
-                    <div className="space-y-5">
-                      {/* Destination Chain */}
-                      <div>
-                        <label className="mb-2 block text-sm font-medium text-gray-700">Destination chain</label>
-                        <div className="relative">
-                          <button
-                            type="button"
-                            onClick={() => setDestOpen((v) => !v)}
-                            disabled={loading}
-                            className="flex w-full items-center justify-between gap-3 rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 shadow-sm transition-all focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-200 disabled:cursor-not-allowed disabled:bg-gray-100"
-                          >
-                            <div className="flex items-center gap-3">
-                              <img
-                                src={dest.iconPath}
-                                alt={dest.name}
-                                className="h-6 w-6 rounded-md"
-                              />
-                              <span className="font-medium">{dest.name}</span>
+                  <div className="grid gap-6 lg:grid-cols-3">
+                    {/* Left: Bridge panel */}
+                    <div className="space-y-6 lg:col-span-2">
+                      <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-lg">
+                        <div className="space-y-5">
+                          {/* Destination Chain */}
+                          <div>
+                            <label className="mb-2 block text-sm font-medium text-gray-700">Destination chain</label>
+                            <div className="relative">
+                              <button
+                                type="button"
+                                onClick={() => setDestOpen((v) => !v)}
+                                disabled={loading}
+                                className="flex w-full items-center justify-between gap-3 rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 shadow-sm transition-all focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-200 disabled:cursor-not-allowed disabled:bg-gray-100"
+                              >
+                                <div className="flex items-center gap-3">
+                                  <img
+                                    src={dest.iconPath}
+                                    alt={dest.name}
+                                    className="h-6 w-6 rounded-md"
+                                  />
+                                  <span className="font-medium">{dest.name}</span>
+                                </div>
+                                <span className="text-gray-400">▾</span>
+                              </button>
+
+                              {destOpen && (
+                                <div className="absolute z-10 mt-2 w-full overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
+                                  <div className="max-h-72 overflow-auto py-1">
+                                    {DESTS.map((d) => (
+                                      <button
+                                        key={d.key}
+                                        type="button"
+                                        onClick={() => {
+                                          setDestKey(d.key);
+                                          setDestOpen(false);
+                                        }}
+                                        className={[
+                                          "flex w-full items-center gap-3 px-4 py-2 text-left text-sm hover:bg-gray-50",
+                                          d.key === destKey ? "bg-gray-50" : "",
+                                        ].join(" ")}
+                                      >
+                                        <img
+                                          src={d.iconPath}
+                                          alt={d.name}
+                                          className="h-6 w-6 rounded-md"
+                                        />
+                                        <span className="font-medium text-gray-900">{d.name}</span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
                             </div>
-                            <span className="text-gray-400">▾</span>
+                          </div>
+
+                          {/* Recipient */}
+                          <div>
+                            <label className="mb-2 block text-sm font-medium text-gray-700">Recipient address</label>
+                            <input
+                              type="text"
+                              value={recipient}
+                              onChange={(e) => setRecipient(e.target.value)}
+                              placeholder={address || "0x..."}
+                              disabled={loading}
+                              className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 shadow-sm transition-all focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-200 disabled:cursor-not-allowed disabled:bg-gray-100"
+                            />
+                          </div>
+
+                          {/* Memo */}
+                          <div>
+                            <label className="mb-2 block text-sm font-medium text-gray-700">Message</label>
+                            <input
+                              type="text"
+                              value={memo}
+                              onChange={(e) => setMemo(e.target.value)}
+                              placeholder="Leave a message"
+                              disabled={loading}
+                              className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 shadow-sm transition-all focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-200 disabled:cursor-not-allowed disabled:bg-gray-100"
+                            />
+                          </div>
+
+                          {/* Amount */}
+                          <div>
+                            <label className="mb-2 block text-sm font-medium text-gray-700">Amount</label>
+                            <div className="relative">
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="5"
+                                value={amountUsdc}
+                                onChange={(e) => setAmountUsdc(e.target.value)}
+                                placeholder="Minimum 5 USDC"
+                                disabled={loading}
+                                className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 pr-16 text-gray-900 shadow-sm transition-all focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-200 disabled:cursor-not-allowed disabled:bg-gray-100"
+                              />
+                              <div className="absolute right-4 top-1/2 -translate-y-1/2">
+                                <UsdcIcon className="h-6 w-6" />
+                              </div>
+                            </div>
+                            <div className="mt-1 text-xs text-gray-500">Suggested minimum: 5 USDC</div>
+                          </div>
+
+                          {/* Info Box */}
+                          <div className="rounded-xl bg-gradient-to-r from-[#fff0f2] to-[#f3eef6] p-5">
+                            <div className="space-y-2 text-sm">
+                              <div className="flex justify-between">
+                                <span className="text-gray-600">Bridge amount</span>
+                                <span className="flex items-center gap-2 font-semibold text-gray-900">
+                                  {amountUsdc || "0"}
+                                  <UsdcIcon className="h-4 w-4" />
+                                </span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-gray-600">Service fee</span>
+                                <span className="flex items-center gap-2 font-semibold text-gray-900">
+                                  {FEE_USDC}
+                                  <UsdcIcon className="h-4 w-4" />
+                                </span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-gray-600">From</span>
+                                <span className="font-semibold text-gray-900">ARC Testnet</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-gray-600">To</span>
+                                <span className="font-semibold text-gray-900">{dest.name}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-gray-600">Estimated time</span>
+                                <span className="font-semibold text-gray-900">~5s - 2min</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Bridge Button */}
+                          <button
+                            onClick={onBridge}
+                            disabled={loading || isWrongNetwork || !amountUsdc || parseFloat(amountUsdc) < 5}
+                            className={[
+                              "w-full rounded-xl px-6 py-4 font-semibold text-white shadow-lg transition-all",
+                              loading || isWrongNetwork || !amountUsdc || parseFloat(amountUsdc) < 5
+                                ? "cursor-not-allowed bg-gray-300"
+                                : "bg-gradient-to-r from-[#ff7582] to-[#725a7a] hover:from-[#ff5f70] hover:to-[#664f6e] active:scale-[0.98]",
+                            ].join(" ")}
+                          >
+                            {loading ? (
+                              <div className="flex items-center justify-center gap-2">
+                                <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                                <span>Processing...</span>
+                              </div>
+                            ) : isWrongNetwork ? (
+                              "Wrong network"
+                            ) : (
+                              "Bridge USDC"
+                            )}
                           </button>
 
-                          {destOpen && (
-                            <div className="absolute z-10 mt-2 w-full overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
-                              <div className="max-h-72 overflow-auto py-1">
-                                {DESTS.map((d) => (
-                                  <button
-                                    key={d.key}
-                                    type="button"
-                                    onClick={() => {
-                                      setDestKey(d.key);
-                                      setDestOpen(false);
-                                    }}
-                                    className={[
-                                      "flex w-full items-center gap-3 px-4 py-2 text-left text-sm hover:bg-gray-50",
-                                      d.key === destKey ? "bg-gray-50" : "",
-                                    ].join(" ")}
-                                  >
-                                    <img
-                                      src={d.iconPath}
-                                      alt={d.name}
-                                      className="h-6 w-6 rounded-md"
-                                    />
-                                    <span className="font-medium text-gray-900">{d.name}</span>
-                                  </button>
-                                ))}
+                          {/* Status Messages */}
+                          {status && (
+                            <div
+                              className={[
+                                "rounded-xl border p-4 text-sm",
+                                status.toLowerCase().includes("success")
+                                  ? "border-green-200 bg-green-50 text-green-800"
+                                  : status.toLowerCase().includes("error")
+                                  ? "border-red-200 bg-red-50 text-red-800"
+                                  : "border-blue-200 bg-blue-50 text-blue-800",
+                              ].join(" ")}
+                            >
+                              <div className="flex items-start gap-3">
+                                {loading && (
+                                  <div className="mt-0.5 h-4 w-4 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+                                )}
+                                <div className="flex-1 whitespace-pre-line">
+                                  {status}
+                                  {txHash && (
+                                    <a
+                                      href={`https://testnet.arcscan.app/tx/${txHash}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-green-700 hover:text-green-900 underline"
+                                    >
+                                      View transaction →
+                                    </a>
+                                  )}
+                                </div>
                               </div>
                             </div>
                           )}
                         </div>
                       </div>
 
-                      {/* Recipient */}
-                      <div>
-                        <label className="mb-2 block text-sm font-medium text-gray-700">Recipient address</label>
-                        <input
-                          type="text"
-                          value={recipient}
-                          onChange={(e) => setRecipient(e.target.value)}
-                          placeholder={address || "0x..."}
-                          disabled={loading}
-                          className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 shadow-sm transition-all focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-200 disabled:cursor-not-allowed disabled:bg-gray-100"
-                        />
-
+                      {/* Donate */}
+                      <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 shadow-md">
+                        <div className="text-xs text-gray-600">Donate: 0xA87Bd559fd6F2646225AcE941bA6648Ec1BAA9AF</div>
                       </div>
-
-                      {/* Memo */}
-                      <div>
-                        <label className="mb-2 block text-sm font-medium text-gray-700">Message</label>
-                        <input
-                          type="text"
-                          value={memo}
-                          onChange={(e) => setMemo(e.target.value)}
-                          placeholder="Leave a message"
-                          disabled={loading}
-                          className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 shadow-sm transition-all focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-200 disabled:cursor-not-allowed disabled:bg-gray-100"
-                        />
-
-                      </div>
-
-                      {/* Amount */}
-                      <div>
-                        <label className="mb-2 block text-sm font-medium text-gray-700">Amount</label>
-                        <div className="relative">
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="5"
-                            value={amountUsdc}
-                            onChange={(e) => setAmountUsdc(e.target.value)}
-                            placeholder="Minimum 5 USDC"
-                            disabled={loading}
-                            className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 pr-16 text-gray-900 shadow-sm transition-all focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-200 disabled:cursor-not-allowed disabled:bg-gray-100"
-                          />
-                          <div className="absolute right-4 top-1/2 -translate-y-1/2">
-                            <UsdcIcon className="h-6 w-6" />
-                          </div>
-                        </div>
-                        <div className="mt-1 text-xs text-gray-500">Suggested minimum: 5 USDC</div>
-                      </div>
-
-                      {/* Info Box */}
-                      <div className="rounded-xl bg-gradient-to-r from-[#fff0f2] to-[#f3eef6] p-5">
-                        <div className="space-y-2 text-sm">
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Bridge amount</span>
-                            <span className="flex items-center gap-2 font-semibold text-gray-900">
-                              {amountUsdc || "0"}
-                              <UsdcIcon className="h-4 w-4" />
-                            </span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Service fee</span>
-                            <span className="flex items-center gap-2 font-semibold text-gray-900">
-                              {FEE_USDC}
-                              <UsdcIcon className="h-4 w-4" />
-                            </span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">From</span>
-                            <span className="font-semibold text-gray-900">ARC Testnet</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">To</span>
-                            <span className="font-semibold text-gray-900">{dest.name}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Estimated time</span>
-                            <span className="font-semibold text-gray-900">~5s - 2min</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Bridge Button */}
-                      <button
-                        onClick={onBridge}
-                        disabled={loading || isWrongNetwork || !amountUsdc || parseFloat(amountUsdc) < 5}
-                        className={[
-                          "w-full rounded-xl px-6 py-4 font-semibold text-white shadow-lg transition-all",
-                          loading || isWrongNetwork || !amountUsdc || parseFloat(amountUsdc) < 5
-                            ? "cursor-not-allowed bg-gray-300"
-                            : "bg-gradient-to-r from-[#ff7582] to-[#725a7a] hover:from-[#ff5f70] hover:to-[#664f6e] active:scale-[0.98]",
-                        ].join(" ")}
-                      >
-                        {loading ? (
-                          <div className="flex items-center justify-center gap-2">
-                            <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                            <span>Processing...</span>
-                          </div>
-                        ) : isWrongNetwork ? (
-                          "Wrong network"
-                        ) : (
-                          "Bridge USDC"
-                        )}
-                      </button>
-
-                      {/* Status Messages */}
-                      {status && (
-                        <div
-                          className={[
-                            "rounded-xl border p-4 text-sm",
-                            status.toLowerCase().includes("success")
-                              ? "border-green-200 bg-green-50 text-green-800"
-                              : status.toLowerCase().includes("error")
-                              ? "border-red-200 bg-red-50 text-red-800"
-                              : "border-blue-200 bg-blue-50 text-blue-800",
-                          ].join(" ")}
-                        >
-                          <div className="flex items-start gap-3">
-                            {loading && (
-                              <div className="mt-0.5 h-4 w-4 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
-                            )}
-                            <div className="flex-1 whitespace-pre-line">
-                              {status}
-                              {txHash && (
-                                <a
-                                  href={`https://testnet.arcscan.app/tx/${txHash}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-green-700 hover:text-green-900 underline"
-                                >
-                                  View transaction →
-                                </a>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      )}
                     </div>
 
-                    {/* Donate */}
-                    <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
-                      <div className="text-xs text-gray-600">Donate: 0xA87Bd559fd6F2646225AcE941bA6648Ec1BAA9AF</div>
-                    </div>
-
-                    {/* Bridge History */}
-                    <div className="rounded-xl border border-gray-200 bg-white p-4">
+                    {/* Right: Bridge History */}
+                    <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-lg">
                       <div className="mb-3 flex items-center justify-between">
                         <div className="text-sm font-semibold text-gray-900">Bridge history</div>
                         <div className="flex items-center gap-2">
@@ -863,11 +870,9 @@ export default function Home() {
                       ) : (
                         <div className="space-y-2">
                           {history.slice(historyPage * 10, historyPage * 10 + 10).map((h) => (
-                            <div key={`${h.txHash}-${h.ts}`} className="rounded-lg bg-gray-50 p-3">
+                            <div key={`${h.txHash}-${h.ts}`} className="rounded-lg bg-gray-50 p-3 shadow-sm">
                               <div className="flex flex-wrap items-center justify-between gap-2">
-                                <div className="text-xs text-gray-600">
-                                  {new Date(h.ts).toLocaleString()}
-                                </div>
+                                <div className="text-xs text-gray-600">{new Date(h.ts).toLocaleString()}</div>
                                 <a
                                   href={`https://testnet.arcscan.app/tx/${h.txHash}`}
                                   target="_blank"
@@ -888,7 +893,7 @@ export default function Home() {
                         </div>
                       )}
                     </div>
-                  </>
+                  </div>
                 ) : (
                   <div className="py-12 text-center">
                     <div className="mb-4 text-4xl">Wallet</div>
