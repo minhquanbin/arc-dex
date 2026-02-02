@@ -327,32 +327,7 @@ export default function Home() {
         );
       }
 
-      // ✅ Step 3: Check allowance Router (approve amount + fee)
-      setStatus("Đang kiểm tra allowance...");
-      const allowance = await publicClient.readContract({
-        address: arcUsdc,
-        abi: ERC20_ABI,
-        functionName: "allowance",
-        args: [address, router],
-      });
-
-      console.log("✅ Allowance:", Number(allowance) / 1e6, "USDC");
-
-      if (allowance < totalNeed) {
-        setStatus("Vui lòng approve USDC cho Router trong ví...");
-        const approveHash = await walletClient.writeContract({
-          address: arcUsdc,
-          abi: ERC20_ABI,
-          functionName: "approve",
-          args: [router, totalNeed],
-        });
-
-        setStatus("Đang chờ xác nhận approve...");
-        await publicClient.waitForTransactionReceipt({ hash: approveHash });
-        console.log("✅ Approved:", approveHash);
-      }
-
-      // ✅ Step 4: Validate recipient
+      // ✅ Step 3: Validate recipient
       let recipientAddr: `0x${string}`;
       try {
         recipientAddr = recipient.trim() ? validateRecipient(recipient.trim()) : address;
@@ -360,153 +335,76 @@ export default function Home() {
         throw new Error(`Recipient không hợp lệ: ${err.message}`);
       }
 
-      // ✅ Step 5: Bridge via Router (1 tx)
+      // ✅ Step 4: Build hookData (memo-only bytes)
       const finalHookData = buildHookDataWithMemo(HOOK_DATA, memo);
 
-      // Preflight simulate to surface revert reason (helps avoid MetaMask "Inaccurate fee")
-      // CCTP v2 can have a higher min fee than what getMinFeeAmount returns (esp. fast transfers).
-      // If simulate fails, we retry once with maxFee = amount - 1 (highest allowed by router).
-      setStatus("Đang mô phỏng giao dịch (simulate)...");
-      const maxFeeHighest = amount - 1n; // contract requires maxFee < amount
-      try {
-        await publicClient.simulateContract({
-          address: router,
-          abi: ROUTER_ABI,
-          functionName: "bridge",
-          args: [amount, dest.domain, addressToBytes32(recipientAddr), maxFee, minFinality, finalHookData],
-          account: address,
-        });
-      } catch (simErr1: any) {
-        console.error("simulateContract error (1st try):", simErr1);
-
-        // Retry with higher maxFee
-        setStatus(
-          `Simulate thất bại, thử lại với maxFee cao hơn (${Number(maxFeeHighest) / 1e6} USDC)...`
+      // ✅ Step 5: Always use 3-step flow
+      // 1) transfer service fee
+      // 2) approve TokenMessengerV2 for bridge amount
+      // 3) burn+message (direct)
+      if (!tokenMessengerV2Addr || !destinationCallerBytes32) {
+        throw new Error(
+          "Không đọc được tokenMessengerV2/destinationCaller từ Router (cần cho 3-step flow)."
         );
-        try {
-          await publicClient.simulateContract({
-            address: router,
-            abi: ROUTER_ABI,
-            functionName: "bridge",
-            args: [
-              amount,
-              dest.domain,
-              addressToBytes32(recipientAddr),
-              maxFeeHighest,
-              minFinality,
-              finalHookData,
-            ],
-            account: address,
-          });
-
-          console.warn(
-            `⚠️ Simulate chỉ pass khi tăng maxFee. Using maxFee=${Number(maxFeeHighest) / 1e6} USDC for this tx.`
-          );
-          maxFee = maxFeeHighest;
-        } catch (simErr2: any) {
-          console.error("simulateContract error (2nd try):", simErr2);
-
-          // If Router mode keeps reverting, fall back to 3-step flow (fee transfer + approve + direct burn)
-          if (!tokenMessengerV2Addr || !destinationCallerBytes32) {
-            throw new Error(
-              `Router.bridge vẫn revert và không đọc được tokenMessengerV2/destinationCaller từ router. ` +
-                `Chi tiết: ${simErr2?.shortMessage || simErr2?.message || "Unknown error"}`
-            );
-          }
-
-          setStatus(
-            "Router.bridge vẫn revert. Chuyển sang chế độ 3 giao dịch: (1) transfer fee (2) approve TokenMessengerV2 (3) burn+message..."
-          );
-
-          // 1) transfer service fee
-          const feeTx = await walletClient.writeContract({
-            address: arcUsdc,
-            abi: ERC20_ABI,
-            functionName: "transfer",
-            args: [feeCollector, feeAmount],
-          });
-          await publicClient.waitForTransactionReceipt({ hash: feeTx });
-
-          // 2) approve TokenMessengerV2 for bridge amount
-          const approveTx = await walletClient.writeContract({
-            address: arcUsdc,
-            abi: ERC20_ABI,
-            functionName: "approve",
-            args: [tokenMessengerV2Addr, amount],
-          });
-          await publicClient.waitForTransactionReceipt({ hash: approveTx });
-
-          // 3) burn+message (direct)
-          const burnTx = await walletClient.writeContract({
-            address: tokenMessengerV2Addr,
-            abi: TOKEN_MESSENGER_V2_ABI,
-            functionName: "depositForBurnWithHook",
-            args: [
-              amount,
-              dest.domain,
-              addressToBytes32(recipientAddr),
-              arcUsdc,
-              destinationCallerBytes32,
-              maxFee,
-              minFinality,
-              finalHookData,
-            ],
-          });
-
-          setTxHash(burnTx);
-          setStatus("Đang chờ xác nhận giao dịch burn+message...");
-          const receipt = await publicClient.waitForTransactionReceipt({ hash: burnTx });
-
-          if (receipt.status === "success") {
-            setStatus(
-              `✅ Bridge thành công (3-step)!\n\n` +
-                `Số lượng: ${Number(amount) / 1e6} USDC\n` +
-                `Từ: ARC Testnet\n` +
-                `Đến: ${dest.name}\n` +
-                `Recipient: ${recipientAddr}\n\n` +
-                `⏳ Chờ 2-5 phút để Circle Forwarding Service xử lý...`
-            );
-            return;
-          }
-
-          throw new Error(`Giao dịch burn+message bị revert`);
-        }
       }
 
-      // Estimate gas and apply buffer
-      setStatus("Đang ước tính gas...");
-      let gas: bigint | undefined;
-      try {
-        const estimated = await publicClient.estimateContractGas({
-          address: router,
-          abi: ROUTER_ABI,
-          functionName: "bridge",
-          args: [amount, dest.domain, addressToBytes32(recipientAddr), maxFee, minFinality, finalHookData],
-          account: address,
+      setStatus(
+        "Chế độ 3 giao dịch: (1) transfer fee (2) approve TokenMessengerV2 (3) burn+message..."
+      );
+
+      // (Optional) check allowance for TokenMessengerV2
+      setStatus("Đang kiểm tra allowance TokenMessengerV2...");
+      const tmAllowance = (await publicClient.readContract({
+        address: arcUsdc,
+        abi: ERC20_ABI,
+        functionName: "allowance",
+        args: [address, tokenMessengerV2Addr],
+      })) as bigint;
+
+      if (tmAllowance < amount) {
+        setStatus("Vui lòng approve USDC cho TokenMessengerV2 trong ví...");
+        const approveTx = await walletClient.writeContract({
+          address: arcUsdc,
+          abi: ERC20_ABI,
+          functionName: "approve",
+          args: [tokenMessengerV2Addr, amount],
         });
-        gas = (estimated * 12n) / 10n; // +20% buffer
-      } catch (gasErr: any) {
-        console.warn("estimateContractGas failed, sending without explicit gas:", gasErr);
+        await publicClient.waitForTransactionReceipt({ hash: approveTx });
       }
 
-      setStatus("Đang gửi giao dịch bridge...");
-      const hash = await walletClient.writeContract({
-        address: router,
-        abi: ROUTER_ABI,
-        functionName: "bridge",
-        args: [amount, dest.domain, addressToBytes32(recipientAddr), maxFee, minFinality, finalHookData],
-        ...(gas ? { gas } : {}),
+      setStatus("Đang gửi giao dịch phí dịch vụ (transfer)...");
+      const feeTx = await walletClient.writeContract({
+        address: arcUsdc,
+        abi: ERC20_ABI,
+        functionName: "transfer",
+        args: [feeCollector, feeAmount],
+      });
+      await publicClient.waitForTransactionReceipt({ hash: feeTx });
+
+      setStatus("Đang gửi giao dịch burn+message...");
+      const burnTx = await walletClient.writeContract({
+        address: tokenMessengerV2Addr,
+        abi: TOKEN_MESSENGER_V2_ABI,
+        functionName: "depositForBurnWithHook",
+        args: [
+          amount,
+          dest.domain,
+          addressToBytes32(recipientAddr),
+          arcUsdc,
+          destinationCallerBytes32,
+          maxFee,
+          minFinality,
+          finalHookData,
+        ],
       });
 
-      setTxHash(hash);
-      console.log("🚀 Bridge tx:", hash);
-
-      setStatus("Đang chờ xác nhận giao dịch...");
-      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      setTxHash(burnTx);
+      setStatus("Đang chờ xác nhận giao dịch burn+message...");
+      const receipt = await publicClient.waitForTransactionReceipt({ hash: burnTx });
 
       if (receipt.status === "success") {
         setStatus(
-          `✅ Bridge thành công!\n\n` +
+          `✅ Bridge thành công (3-step)!\n\n` +
             `Số lượng: ${Number(amount) / 1e6} USDC\n` +
             `Từ: ARC Testnet\n` +
             `Đến: ${dest.name}\n` +
@@ -514,7 +412,7 @@ export default function Home() {
             `⏳ Chờ 2-5 phút để Circle Forwarding Service xử lý...`
         );
       } else {
-        throw new Error("Giao dịch bị revert");
+        throw new Error("Giao dịch burn+message bị revert");
       }
     } catch (err: any) {
       console.error("Bridge error:", err);
@@ -533,7 +431,7 @@ export default function Home() {
             <h1 className="bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-4xl font-bold text-transparent">
               ARC Bridge dApp
             </h1>
-            <p className="mt-2 text-gray-600">Circle CCTP + Forwarding Service (Router: 1 tx)</p>
+            <p className="mt-2 text-gray-600">Circle CCTP + Forwarding Service (3-step)</p>
           </div>
           <ConnectButton />
         </div>
@@ -754,7 +652,7 @@ export default function Home() {
                         <div className="mb-2 font-semibold text-gray-700">📝 Lưu ý quan trọng:</div>
                         <ul className="ml-4 list-disc space-y-1">
                           <li>Thu phí dịch vụ {FEE_USDC} USDC/lệnh → {FEE_RECEIVER}</li>
-                          <li>Gọi Router contract (1 tx: fee + bridge)</li>
+                          <li>Chế độ 3 giao dịch: (1) fee transfer (2) approve TokenMessengerV2 (3) burn+message</li>
                           <li>Memo được nhúng vào hookData (để xử lý on-chain ở chain đích cần hook/receiver tương ứng)</li>
                           <li>Không cần gas token ở chain đích (Circle Forwarding Service)</li>
                           <li>Giao dịch hoàn tất trong 2-5 phút</li>

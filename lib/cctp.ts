@@ -194,9 +194,11 @@ export function computeMaxFee(amountUsdc: string, destinationDomain: number) {
  * Build hookData with memo
  * Format: cctp-forward header (32 bytes) + UTF-8 memo (max 128 bytes)
  */
-export function buildHookDataWithMemo(baseHookData: string, memo: string): `0x${string}` {
+export function buildHookDataWithMemo(_baseHookData: string, memo: string): `0x${string}` {
+  // NOTE: user requested hookData raw UTF-8 to show ONLY the memo content.
+  // So we send memo bytes only (no cctp-forward header).
   if (!memo || memo.trim() === "") {
-    return baseHookData as `0x${string}`;
+    return "0x";
   }
 
   // Encode memo as UTF-8 hex
@@ -212,8 +214,7 @@ export function buildHookDataWithMemo(baseHookData: string, memo: string): `0x${
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 
-  // Combine: base hookData (32 bytes) + memo
-  return `${baseHookData}${memoHex}` as `0x${string}`;
+  return `0x${memoHex}` as `0x${string}`;
 }
 
 // =====================================================
