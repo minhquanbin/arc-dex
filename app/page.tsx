@@ -6,38 +6,20 @@ import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { DESTS } from "@/lib/chains";
 import {
   ERC20_ABI,
+  ROUTER_ABI,
+  HOOK_DATA,
   addressToBytes32,
+  buildHookDataWithMemo,
+  computeServiceFee,
   validateRecipient,
   validateAmount,
   validateMemo,
 } from "@/lib/cctp";
-import { concatHex, parseUnits, stringToHex } from "viem";
+import { parseUnits } from "viem";
 
-// ✅ TokenMessengerV2 ABI - gọi trực tiếp như auto-bridge
-const TOKEN_MESSENGER_V2_ABI = [
-  {
-    type: "function",
-    name: "depositForBurnWithHook",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "amount", type: "uint256" },
-      { name: "destinationDomain", type: "uint32" },
-      { name: "mintRecipient", type: "bytes32" },
-      { name: "burnToken", type: "address" },
-      { name: "destinationCaller", type: "bytes32" },
-      { name: "maxFee", type: "uint256" },
-      { name: "minFinalityThreshold", type: "uint32" },
-      { name: "hookData", type: "bytes" },
-    ],
-    outputs: [{ name: "nonce", type: "uint64" }],
-  },
-] as const;
-
-const HOOK_DATA = "0x636374702d666f72776172640000000000000000000000000000000000000000" as const;
-const DEST_CALLER_ZERO = addressToBytes32("0x0000000000000000000000000000000000000000");
-
-const FEE_RECEIVER = "0xA87Bd559fd6F2646225AcE941bA6648Ec1BAA9AF" as const;
-const FEE_USDC = "0.01" as const;
+const FEE_RECEIVER = (process.env.NEXT_PUBLIC_FEE_COLLECTOR ||
+  "0xA87Bd559fd6F2646225AcE941bA6648Ec1BAA9AF") as const;
+const FEE_USDC = (process.env.NEXT_PUBLIC_FEE_USDC || "0.01") as const;
 
 type TabType = "swap" | "bridge" | "liquidity" | "payment" | "issuance";
 
@@ -150,14 +132,14 @@ export default function Home() {
         throw new Error(`Vui lòng chuyển sang ARC Testnet (Chain ID: ${expectedChainId})`);
       }
 
-      // ✅ Sử dụng TokenMessengerV2 trực tiếp - giống auto-bridge
-      const tokenMessenger = (process.env.NEXT_PUBLIC_ARC_TOKEN_MESSENGER_V2 || 
-        "0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA") as `0x${string}`;
-      const arcUsdc = (process.env.NEXT_PUBLIC_ARC_USDC || 
+      // ✅ Router contract (1 tx: thu phí + bridge)
+      const router = (process.env.NEXT_PUBLIC_ARC_ROUTER ||
+        "0xEc02A909701A8eB9C84B93b55B6d4A7ca215CFca") as `0x${string}`;
+      const arcUsdc = (process.env.NEXT_PUBLIC_ARC_USDC ||
         "0x3600000000000000000000000000000000000000") as `0x${string}`;
       const minFinality = Number(process.env.NEXT_PUBLIC_MIN_FINALITY_THRESHOLD || "1000");
 
-      console.log("📝 Starting bridge with TokenMessengerV2:", tokenMessenger);
+      console.log("📝 Starting bridge with Router:", router);
       console.log("💰 USDC address:", arcUsdc);
 
       // ✅ Step 1: Validate inputs
@@ -166,7 +148,7 @@ export default function Home() {
       validateAmount(amountUsdc);
       if (memo) validateMemo(memo);
 
-      const feeAmount = parseUnits(FEE_USDC, 6);
+      const feeAmount = computeServiceFee();
 
       // Compute fees
       let amount: bigint, maxFee: bigint;
@@ -211,34 +193,24 @@ export default function Home() {
         );
       }
 
-      // ✅ Step 3: Thu phí dịch vụ 0.01 USDC (1 tx ERC20 transfer)
-      setStatus(`Đang thu phí dịch vụ ${FEE_USDC} USDC...`);
-      const feeHash = await walletClient.writeContract({
-        address: arcUsdc,
-        abi: ERC20_ABI,
-        functionName: "transfer",
-        args: [FEE_RECEIVER, feeAmount],
-      });
-      await publicClient.waitForTransactionReceipt({ hash: feeHash });
-
-      // ✅ Step 4: Check và approve nếu cần
+      // ✅ Step 3: Check allowance Router (approve amount + fee)
       setStatus("Đang kiểm tra allowance...");
       const allowance = await publicClient.readContract({
         address: arcUsdc,
         abi: ERC20_ABI,
         functionName: "allowance",
-        args: [address, tokenMessenger],
+        args: [address, router],
       });
 
       console.log("✅ Allowance:", Number(allowance) / 1e6, "USDC");
 
-      if (allowance < amount) {
-        setStatus("Vui lòng approve USDC trong ví...");
+      if (allowance < totalNeed) {
+        setStatus("Vui lòng approve USDC cho Router trong ví...");
         const approveHash = await walletClient.writeContract({
           address: arcUsdc,
           abi: ERC20_ABI,
           functionName: "approve",
-          args: [tokenMessenger, amount],
+          args: [router, totalNeed],
         });
 
         setStatus("Đang chờ xác nhận approve...");
@@ -246,7 +218,7 @@ export default function Home() {
         console.log("✅ Approved:", approveHash);
       }
 
-      // ✅ Step 5: Validate recipient
+      // ✅ Step 4: Validate recipient
       let recipientAddr: `0x${string}`;
       try {
         recipientAddr = recipient.trim() ? validateRecipient(recipient.trim()) : address;
@@ -254,26 +226,16 @@ export default function Home() {
         throw new Error(`Recipient không hợp lệ: ${err.message}`);
       }
 
-      // ✅ Step 6: Bridge - GỌI TRỰC TIẾP TokenMessengerV2
+      // ✅ Step 5: Bridge via Router (1 tx)
       setStatus("Đang gửi giao dịch bridge...");
 
-      // Build hookData (memo sẽ được nhúng vào hookData; xử lý on-chain ở chain đích cần hook/receiver tương ứng)
-      const finalHookData = memo ? concatHex([HOOK_DATA, stringToHex(memo)]) : HOOK_DATA;
+      const finalHookData = buildHookDataWithMemo(HOOK_DATA, memo);
 
       const hash = await walletClient.writeContract({
-        address: tokenMessenger,
-        abi: TOKEN_MESSENGER_V2_ABI,
-        functionName: "depositForBurnWithHook",
-        args: [
-          amount,
-          dest.domain,
-          addressToBytes32(recipientAddr),
-          arcUsdc,
-          DEST_CALLER_ZERO,
-          maxFee,
-          minFinality,
-          finalHookData,
-        ],
+        address: router,
+        abi: ROUTER_ABI,
+        functionName: "bridge",
+        args: [amount, dest.domain, addressToBytes32(recipientAddr), maxFee, minFinality, finalHookData],
       });
 
       setTxHash(hash);
@@ -311,7 +273,7 @@ export default function Home() {
             <h1 className="bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-4xl font-bold text-transparent">
               ARC Bridge dApp
             </h1>
-            <p className="mt-2 text-gray-600">Circle CCTP + Forwarding Service (Direct TokenMessengerV2)</p>
+            <p className="mt-2 text-gray-600">Circle CCTP + Forwarding Service (Router: 1 tx)</p>
           </div>
           <ConnectButton />
         </div>
@@ -532,7 +494,7 @@ export default function Home() {
                         <div className="mb-2 font-semibold text-gray-700">📝 Lưu ý quan trọng:</div>
                         <ul className="ml-4 list-disc space-y-1">
                           <li>Thu phí dịch vụ {FEE_USDC} USDC/lệnh → {FEE_RECEIVER}</li>
-                          <li>Gọi trực tiếp TokenMessengerV2 (giống auto-bridge script)</li>
+                          <li>Gọi Router contract (1 tx: fee + bridge)</li>
                           <li>Memo được nhúng vào hookData (để xử lý on-chain ở chain đích cần hook/receiver tương ứng)</li>
                           <li>Không cần gas token ở chain đích (Circle Forwarding Service)</li>
                           <li>Giao dịch hoàn tất trong 2-5 phút</li>
@@ -555,7 +517,7 @@ export default function Home() {
         {/* Footer */}
         <div className="mt-8 text-center">
           <div className="inline-flex items-center gap-4 text-xs text-gray-500">
-            <span>Powered by Circle CCTP + TokenMessengerV2 (Direct)</span>
+            <span>Powered by Circle CCTP + Router</span>
             <span>•</span>
             <span>Testnet</span>
             <span>•</span>
