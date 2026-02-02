@@ -334,7 +334,10 @@ export default function Home() {
       const finalHookData = buildHookDataWithMemo(HOOK_DATA, memo);
 
       // Preflight simulate to surface revert reason (helps avoid MetaMask "Inaccurate fee")
+      // CCTP v2 can have a higher min fee than what getMinFeeAmount returns (esp. fast transfers).
+      // If simulate fails, we retry once with maxFee = amount - 1 (highest allowed by router).
       setStatus("Đang mô phỏng giao dịch (simulate)...");
+      const maxFeeHighest = amount - 1n; // contract requires maxFee < amount
       try {
         await publicClient.simulateContract({
           address: router,
@@ -343,11 +346,39 @@ export default function Home() {
           args: [amount, dest.domain, addressToBytes32(recipientAddr), maxFee, minFinality, finalHookData],
           account: address,
         });
-      } catch (simErr: any) {
-        console.error("simulateContract error:", simErr);
-        throw new Error(
-          `Simulate thất bại: ${simErr?.shortMessage || simErr?.message || "Unknown error"}`
+      } catch (simErr1: any) {
+        console.error("simulateContract error (1st try):", simErr1);
+
+        // Retry with higher maxFee
+        setStatus(
+          `Simulate thất bại, thử lại với maxFee cao hơn (${Number(maxFeeHighest) / 1e6} USDC)...`
         );
+        try {
+          await publicClient.simulateContract({
+            address: router,
+            abi: ROUTER_ABI,
+            functionName: "bridge",
+            args: [
+              amount,
+              dest.domain,
+              addressToBytes32(recipientAddr),
+              maxFeeHighest,
+              minFinality,
+              finalHookData,
+            ],
+            account: address,
+          });
+
+          console.warn(
+            `⚠️ Simulate chỉ pass khi tăng maxFee. Using maxFee=${Number(maxFeeHighest) / 1e6} USDC for this tx.`
+          );
+          maxFee = maxFeeHighest;
+        } catch (simErr2: any) {
+          console.error("simulateContract error (2nd try):", simErr2);
+          throw new Error(
+            `Simulate thất bại: ${simErr2?.shortMessage || simErr2?.message || "Unknown error"}`
+          );
+        }
       }
 
       // Estimate gas and apply buffer
