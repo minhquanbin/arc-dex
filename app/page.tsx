@@ -353,7 +353,7 @@ export default function Home() {
                               {status}
                               {txHash && (
                                 <a
-                                  href={`https://explorer.testnet.arc.network/tx/${txHash}`}
+                                  href={`https://testnet.arcscan.app/tx/${txHash}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-green-700 hover:text-green-900 underline"
