@@ -53,68 +53,64 @@ const FEE_USDC = process.env.NEXT_PUBLIC_FEE_USDC || "0.01";
 type TabType = "swap" | "bridge" | "liquidity" | "payment" | "issuance";
 
 function ArcLogoIcon({ className }: { className?: string }) {
-  const gid = useId();
+  const gid0 = useId();
+  const gid1 = useId();
+
   return (
     <svg
+      width="32"
+      height="32"
+      viewBox="0 0 32 32"
+      fill="none"
       xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 64 64"
       className={className}
       aria-label="ARC"
       role="img"
     >
+      <rect width="32" height="32" rx="4" fill={`url(#${gid0})`} />
+      <path
+        d="M15.9993 8C18.2886 8 20.3236 9.98314 21.7298 13.5848C22.4611 15.4577 22.999 17.6834 23.318 20.1045C23.3467 20.3204 23.3708 20.5404 23.396 20.7594C23.4042 20.7727 23.4088 20.7855 23.4073 20.7958C23.4073 20.7958 23.5944 21.9661 23.6344 23.9995H23.6134C23.3355 23.7713 20.0579 21.1963 14.6249 21.942C14.707 21.0225 14.8198 20.1281 14.9654 19.2706C14.9731 19.227 14.9813 19.1845 14.989 19.1409C17.1199 19.0768 18.9851 19.324 20.4154 19.6486C20.4102 19.6147 20.4056 19.5799 20.4 19.546C20.1061 17.7152 19.6723 16.0392 19.1128 14.6069C18.1984 12.2648 17.005 10.8098 15.9993 10.8098C14.9937 10.8098 13.8003 12.2653 12.8859 14.6069C12.6643 15.1736 12.4628 15.7777 12.2823 16.4146C12.0284 17.3075 11.8151 18.2649 11.6443 19.2706C11.392 20.7563 11.2346 22.3492 11.1766 24H8.36523C8.49498 20.083 9.15911 16.4274 10.2689 13.5848C11.6751 9.98314 13.7105 8 15.9993 8Z"
+        fill={`url(#${gid1})`}
+      />
       <defs>
-        <linearGradient id={gid} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#7C3AED" />
-          <stop offset="1" stopColor="#2563EB" />
+        <linearGradient id={gid0} x1="16" y1="0" x2="16" y2="32" gradientUnits="userSpaceOnUse">
+          <stop offset="0.475962" stopColor="#021431" />
+          <stop offset="1" stopColor="#20456B" />
+        </linearGradient>
+        <linearGradient id={gid1} x1="14.5524" y1="8" x2="18.1727" y2="36.9107" gradientUnits="userSpaceOnUse">
+          <stop offset="0.288462" stopColor="white" />
+          <stop offset="1" stopColor="white" stopOpacity="0" />
         </linearGradient>
       </defs>
-      <rect x="6" y="6" width="52" height="52" rx="14" fill={`url(#${gid})`} />
-      <text
-        x="32"
-        y="38"
-        textAnchor="middle"
-        fontFamily="ui-sans-serif, system-ui, -apple-system"
-        fontSize="18"
-        fontWeight="900"
-        fill="#fff"
-      >
-        ARC
-      </text>
     </svg>
   );
 }
 
 function UsdcIcon({ className }: { className?: string }) {
-  const gid = useId();
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 64 64"
+      width="48"
+      height="48"
+      fill="none"
+      viewBox="0 0 120 120"
       className={className}
       aria-label="USDC"
       role="img"
+      focusable="false"
     >
-      <defs>
-        <linearGradient id={gid} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#24D6B5" />
-          <stop offset="0.55" stopColor="#5AB8FF" />
-          <stop offset="1" stopColor="#7C5CFF" />
-        </linearGradient>
-      </defs>
-      <circle cx="32" cy="32" r="30" fill="#fff" />
-      <circle cx="32" cy="32" r="26" fill={`url(#${gid})`} opacity="0.15" />
-      <circle cx="32" cy="32" r="26" fill="none" stroke={`url(#${gid})`} strokeWidth="6" />
-      <text
-        x="32"
-        y="39"
-        textAnchor="middle"
-        fontFamily="ui-sans-serif, system-ui, -apple-system"
-        fontSize="16"
-        fontWeight="900"
-        fill="#1F2937"
-      >
-        USDC
-      </text>
+      <path
+        fill="#0B53BF"
+        d="M60 120c33.137 0 60-26.863 60-60S93.137 0 60 0 0 26.863 0 60s26.863 60 60 60"
+      ></path>
+      <path
+        fill="#fff"
+        d="M70.8 16.313v7.725C86.211 28.688 97.498 43.013 97.498 60s-11.287 31.313-26.7 35.963v7.725C90.45 98.888 105 81.15 105 60s-14.55-38.887-34.2-43.687M22.499 60c0-16.987 11.287-31.312 26.7-35.962v-7.725c-19.65 4.8-34.2 22.537-34.2 43.687s14.55 38.888 34.2 43.688v-7.725C33.786 91.35 22.499 76.988 22.499 60"
+      ></path>
+      <path
+        fill="#fff"
+        d="M76.124 68.363c0-15.338-24.037-9.038-24.037-17.513 0-3.037 2.437-4.987 7.087-4.987 5.55 0 7.463 2.7 8.063 6.337h7.65c-.683-6.826-4.6-11.137-11.138-12.42v-6.03h-7.5v5.814c-7.161.912-11.662 5.083-11.662 11.286 0 15.413 24.075 9.638 24.075 17.963 0 3.15-3.038 5.25-8.176 5.25-6.712 0-8.924-2.963-9.75-7.05h-7.462c.483 7.477 5.094 12.157 12.975 13.324v5.913h7.5v-5.834c7.692-.994 12.375-5.468 12.375-12.053"
+      ></path>
     </svg>
   );
 }
