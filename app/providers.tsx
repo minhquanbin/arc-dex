@@ -2,10 +2,9 @@
 
 import "@rainbow-me/rainbowkit/styles.css";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { RainbowKitProvider, getDefaultWallets } from "@rainbow-me/rainbowkit";
-import { WagmiProvider, http } from "wagmi";
+import { RainbowKitProvider } from "@rainbow-me/rainbowkit";
+import { WagmiProvider, createConfig, http } from "wagmi";
 import { defineChain } from "viem";
-import { createConfig } from "wagmi";
 
 const arc = defineChain({
   id: Number(process.env.NEXT_PUBLIC_ARC_CHAIN_ID || 12345),
@@ -16,15 +15,9 @@ const arc = defineChain({
   },
 });
 
-const { wallets } = getDefaultWallets({
-  appName: "ARC Bridge",
-  projectId: "REPLACE_WITH_WALLETCONNECT_PROJECT_ID",
-});
-
 const config = createConfig({
   chains: [arc],
   transports: { [arc.id]: http(arc.rpcUrls.default.http[0]) },
-  wallets,
   ssr: true,
 });
 
