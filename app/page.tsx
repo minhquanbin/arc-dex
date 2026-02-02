@@ -89,10 +89,30 @@ export default function Home() {
 
       const router = (process.env.NEXT_PUBLIC_ARC_ROUTER || "0x82657177d3b529E008cb766475F53CeFb0d95819") as `0x${string}`;
       const usdc = process.env.NEXT_PUBLIC_ARC_USDC_ADDRESS as `0x${string}`;
+      const tokenMessenger = process.env.NEXT_PUBLIC_ARC_TOKEN_MESSENGER_V2 as `0x${string}`;
       const minFinality = Number(process.env.NEXT_PUBLIC_MIN_FINALITY_THRESHOLD || "1000");
 
-      if (!router || !usdc) {
+      if (!router || !usdc || !tokenMessenger) {
         throw new Error("Contract addresses not configured");
+      }
+
+      setStatus("Validating Router config...");
+      const routerUsdc = (await publicClient.readContract({
+        address: router,
+        abi: ROUTER_ABI,
+        functionName: "usdc",
+      })) as `0x${string}`;
+      const routerTm = (await publicClient.readContract({
+        address: router,
+        abi: ROUTER_ABI,
+        functionName: "tokenMessengerV2",
+      })) as `0x${string}`;
+
+      if (routerUsdc.toLowerCase() !== usdc.toLowerCase()) {
+        throw new Error(`Router.usdc mismatch: onchain=${routerUsdc}, env=${usdc}`);
+      }
+      if (routerTm.toLowerCase() !== tokenMessenger.toLowerCase()) {
+        throw new Error(`Router.tokenMessengerV2 mismatch: onchain=${routerTm}, env=${tokenMessenger}`);
       }
 
       const amountNum = parseFloat(amountUsdc);

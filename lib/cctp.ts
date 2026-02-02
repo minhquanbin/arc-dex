@@ -70,6 +70,9 @@ export const ROUTER_ABI = [
     ],
     outputs: [{ name: "nonce", type: "uint64" }],
   },
+  { type: "function", name: "usdc", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "address" }] },
+  { type: "function", name: "tokenMessengerV2", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "address" }] },
+  { type: "function", name: "feeCollector", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "address" }] },
 ] as const;
 
 export function computeFeeUsdc() {
