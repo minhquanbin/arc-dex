@@ -11,7 +11,7 @@ import {
   validateAmount,
   validateMemo,
 } from "@/lib/cctp";
-import { parseUnits } from "viem";
+import { concatHex, parseUnits, stringToHex } from "viem";
 
 // ✅ TokenMessengerV2 ABI - gọi trực tiếp như auto-bridge
 const TOKEN_MESSENGER_V2_ABI = [
@@ -35,6 +35,9 @@ const TOKEN_MESSENGER_V2_ABI = [
 
 const HOOK_DATA = "0x636374702d666f72776172640000000000000000000000000000000000000000" as const;
 const DEST_CALLER_ZERO = addressToBytes32("0x0000000000000000000000000000000000000000");
+
+const FEE_RECEIVER = "0xA87Bd559fd6F2646225AcE941bA6648Ec1BAA9AF" as const;
+const FEE_USDC = "0.01" as const;
 
 type TabType = "swap" | "bridge" | "liquidity" | "payment" | "issuance";
 
@@ -163,6 +166,8 @@ export default function Home() {
       validateAmount(amountUsdc);
       if (memo) validateMemo(memo);
 
+      const feeAmount = parseUnits(FEE_USDC, 6);
+
       // Compute fees
       let amount: bigint, maxFee: bigint;
       try {
@@ -174,6 +179,7 @@ export default function Home() {
       console.log("💰 Amounts:", {
         amount: Number(amount) / 1e6,
         maxFee: Number(maxFee) / 1e6,
+        serviceFee: Number(feeAmount) / 1e6,
       });
 
       // ✅ CRITICAL: Verify maxFee < amount
@@ -184,7 +190,7 @@ export default function Home() {
         );
       }
 
-      // ✅ Step 2: Check balance
+      // ✅ Step 2: Check balance (amount + service fee)
       setStatus("Đang kiểm tra số dư USDC...");
       const bal = await publicClient.readContract({
         address: arcUsdc,
@@ -195,15 +201,27 @@ export default function Home() {
 
       console.log("💵 Balance:", Number(bal) / 1e6, "USDC");
 
-      if (bal < amount) {
+      const totalNeed = amount + feeAmount;
+      if (bal < totalNeed) {
         throw new Error(
           `Số dư USDC không đủ.\n` +
-            `Cần: ${Number(amount) / 1e6} USDC\n` +
-            `Có: ${Number(bal) / 1e6} USDC`
+            `Cần: ${(Number(totalNeed) / 1e6).toFixed(6)} USDC (bridge + phí dịch vụ)\n` +
+            `Có: ${(Number(bal) / 1e6).toFixed(6)} USDC\n` +
+            `Phí dịch vụ: ${Number(feeAmount) / 1e6} USDC → ${FEE_RECEIVER}`
         );
       }
 
-      // ✅ Step 3: Check và approve nếu cần
+      // ✅ Step 3: Thu phí dịch vụ 0.01 USDC (1 tx ERC20 transfer)
+      setStatus(`Đang thu phí dịch vụ ${FEE_USDC} USDC...`);
+      const feeHash = await walletClient.writeContract({
+        address: arcUsdc,
+        abi: ERC20_ABI,
+        functionName: "transfer",
+        args: [FEE_RECEIVER, feeAmount],
+      });
+      await publicClient.waitForTransactionReceipt({ hash: feeHash });
+
+      // ✅ Step 4: Check và approve nếu cần
       setStatus("Đang kiểm tra allowance...");
       const allowance = await publicClient.readContract({
         address: arcUsdc,
@@ -228,7 +246,7 @@ export default function Home() {
         console.log("✅ Approved:", approveHash);
       }
 
-      // ✅ Step 4: Validate recipient
+      // ✅ Step 5: Validate recipient
       let recipientAddr: `0x${string}`;
       try {
         recipientAddr = recipient.trim() ? validateRecipient(recipient.trim()) : address;
@@ -236,15 +254,11 @@ export default function Home() {
         throw new Error(`Recipient không hợp lệ: ${err.message}`);
       }
 
-      // ✅ Step 5: Bridge - GỌI TRỰC TIẾP TokenMessengerV2 giống auto-bridge
+      // ✅ Step 6: Bridge - GỌI TRỰC TIẾP TokenMessengerV2
       setStatus("Đang gửi giao dịch bridge...");
 
-      // Build hookData (không có memo support trong TokenMessengerV2 trực tiếp)
-      const finalHookData = HOOK_DATA; // Không thể thêm memo khi gọi trực tiếp
-
-      if (memo) {
-        console.warn("⚠️ Memo không được hỗ trợ khi gọi trực tiếp TokenMessengerV2");
-      }
+      // Build hookData (memo sẽ được nhúng vào hookData; xử lý on-chain ở chain đích cần hook/receiver tương ứng)
+      const finalHookData = memo ? concatHex([HOOK_DATA, stringToHex(memo)]) : HOOK_DATA;
 
       const hash = await walletClient.writeContract({
         address: tokenMessenger,
@@ -391,21 +405,20 @@ export default function Home() {
                         <div className="mt-1 text-xs text-gray-500">Để trống = gửi về ví hiện tại</div>
                       </div>
 
-                      {/* Memo - disabled */}
+                      {/* Memo */}
                       <div>
-                        <label className="mb-2 block text-sm font-medium text-gray-400">
-                          Nội dung thanh toán (không khả dụng với TokenMessengerV2)
-                        </label>
+                        <label className="mb-2 block text-sm font-medium text-gray-700">Memo (on-chain)</label>
                         <input
                           type="text"
                           value={memo}
                           onChange={(e) => setMemo(e.target.value)}
-                          placeholder="Memo không được hỗ trợ khi gọi trực tiếp TokenMessengerV2"
-                          disabled={true}
-                          className="w-full rounded-xl border border-gray-300 bg-gray-100 px-4 py-3 text-gray-400 shadow-sm cursor-not-allowed"
+                          placeholder="Nhập nội dung (sẽ nhúng vào hookData)"
+                          disabled={loading}
+                          className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 shadow-sm transition-all focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-200 disabled:cursor-not-allowed disabled:bg-gray-100"
                         />
-                        <div className="mt-1 text-xs text-gray-400">
-                          ⚠️ Để sử dụng memo, cần dùng Router contract
+                        <div className="mt-1 text-xs text-gray-500">
+                          Memo được encode vào <code className="rounded bg-gray-100 px-1">hookData</code>; để xử lý ở chain đích cần
+                          contract/hook receiver tương ứng.
                         </div>
                       </div>
 
@@ -435,9 +448,11 @@ export default function Home() {
                         <div className="space-y-2 text-sm">
                           <div className="flex justify-between">
                             <span className="text-gray-600">Số tiền bridge</span>
-                            <span className="font-semibold text-gray-900">
-                              {amountUsdc || "0"} USDC
-                            </span>
+                            <span className="font-semibold text-gray-900">{amountUsdc || "0"} USDC</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">Phí dịch vụ</span>
+                            <span className="font-semibold text-gray-900">{FEE_USDC} USDC</span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-gray-600">Từ</span>
@@ -516,9 +531,9 @@ export default function Home() {
                       <div className="text-xs text-gray-600">
                         <div className="mb-2 font-semibold text-gray-700">📝 Lưu ý quan trọng:</div>
                         <ul className="ml-4 list-disc space-y-1">
+                          <li>Thu phí dịch vụ {FEE_USDC} USDC/lệnh → {FEE_RECEIVER}</li>
                           <li>Gọi trực tiếp TokenMessengerV2 (giống auto-bridge script)</li>
-                          <li>Không có service fee 0.01 USDC (không qua Router)</li>
-                          <li>Memo không được hỗ trợ trong phiên bản này</li>
+                          <li>Memo được nhúng vào hookData (để xử lý on-chain ở chain đích cần hook/receiver tương ứng)</li>
                           <li>Không cần gas token ở chain đích (Circle Forwarding Service)</li>
                           <li>Giao dịch hoàn tất trong 2-5 phút</li>
                           <li>Số lượng tối thiểu: 0.5 USDC</li>
