@@ -13,7 +13,7 @@ import {
   TOKEN_MESSENGER_V2_ABI,
 } from "@/lib/cctp";
 
-type TabType = "bridge" | "swap" | "payment" | "deploy";
+type TabType = "swap" | "bridge" | "liquidity" | "payment" | "issuance";
 
 export default function Home() {
   const { address, isConnected, chain } = useAccount();
@@ -22,12 +22,12 @@ export default function Home() {
 
   const [tab, setTab] = useState<TabType>("bridge");
   const [destKey, setDestKey] = useState(DESTS[0].key);
-  const [amountUsdc, setAmountUsdc] = useState("2.00");
+  const [amountUsdc, setAmountUsdc] = useState("");
   const [status, setStatus] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [txHash, setTxHash] = useState<string>("");
 
-  const dest = useMemo(() => DESTS.find((d) => d.key === destKey)!, [destKey]);
+  const dest = useMemo(() => DESTS.find((d) => d.key === destKey) || DESTS[0], [destKey]);
 
   const expectedChainId = Number(process.env.NEXT_PUBLIC_ARC_CHAIN_ID || 12345);
   const isWrongNetwork = isConnected && chain?.id !== expectedChainId;
@@ -50,16 +50,17 @@ export default function Home() {
       const usdc = process.env.NEXT_PUBLIC_ARC_USDC_ADDRESS as `0x${string}`;
       const minFinality = Number(process.env.NEXT_PUBLIC_MIN_FINALITY_THRESHOLD || "1000");
 
-      // Validate amount
+      if (!tokenMessenger || !usdc) {
+        throw new Error("Contract addresses not configured");
+      }
+
       const amountNum = parseFloat(amountUsdc);
       if (isNaN(amountNum) || amountNum <= 0) {
         throw new Error("Please enter a valid amount");
       }
 
-      // Compute fee
       const { amount, maxFee } = computeMaxFee(amountUsdc);
 
-      // 1) Check and approve USDC
       setStatus("Checking USDC allowance...");
       const allowance = await publicClient.readContract({
         address: usdc,
@@ -81,7 +82,6 @@ export default function Home() {
         await publicClient.waitForTransactionReceipt({ hash: approveHash });
       }
 
-      // 2) Execute bridge transaction
       setStatus("Please confirm the bridge transaction in your wallet...");
       const burnHash = await walletClient.writeContract({
         address: tokenMessenger,
@@ -103,234 +103,265 @@ export default function Home() {
       await publicClient.waitForTransactionReceipt({ hash: burnHash });
       
       setTxHash(burnHash);
-      setStatus("✅ Bridge transaction successful!");
+      setStatus("Bridge transaction successful!");
+      setAmountUsdc("");
     } catch (e: any) {
       console.error("Bridge error:", e);
-      setStatus(`❌ Error: ${e?.message || e?.shortMessage || "Transaction failed"}`);
+      setStatus(`Error: ${e?.message || e?.shortMessage || "Transaction failed"}`);
     } finally {
       setLoading(false);
     }
   }
 
+  const tabs: { key: TabType; label: string; icon: string; enabled: boolean }[] = [
+    { key: "swap", label: "Swap", icon: "🔄", enabled: false },
+    { key: "bridge", label: "Bridge", icon: "🌉", enabled: true },
+    { key: "liquidity", label: "Liquidity", icon: "💧", enabled: false },
+    { key: "payment", label: "Payment", icon: "💳", enabled: false },
+    { key: "issuance", label: "Issuance", icon: "🏦", enabled: false },
+  ];
+
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
-      {/* Background decoration */}
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(76,29,149,0.1),transparent_50%)]" />
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_20%,rgba(59,130,246,0.1),transparent_50%)]" />
-      
-      <div className="relative mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+    <main className="min-h-screen bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50">
+      <div className="mx-auto max-w-4xl px-4 py-8">
         {/* Header */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
-              ARC dApp
-            </h1>
-            <p className="mt-1 text-sm text-slate-400">
-              Cross-chain bridge powered by CCTP
-            </p>
+        <div className="mb-8 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-purple-600 to-blue-600 shadow-lg">
+              <span className="text-2xl">🌐</span>
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">ARC DEX</h1>
+              <p className="text-sm text-gray-600">Bridge & Pay on Tempo Network</p>
+            </div>
           </div>
           <ConnectButton />
         </div>
 
         {/* Wrong Network Warning */}
         {isWrongNetwork && (
-          <div className="mt-6 rounded-2xl border border-yellow-500/20 bg-yellow-500/10 p-4">
+          <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4">
             <div className="flex items-start gap-3">
-              <div className="text-2xl">⚠️</div>
-              <div className="flex-1">
-                <div className="font-semibold text-yellow-200">Wrong Network</div>
-                <div className="mt-1 text-sm text-yellow-300/80">
-                  Please switch to ARC Testnet (Chain ID: {expectedChainId}) in your wallet
+              <span className="text-xl">⚠️</span>
+              <div>
+                <div className="font-semibold text-amber-900">Wrong Network</div>
+                <div className="mt-1 text-sm text-amber-700">
+                  Please switch to ARC Testnet (Chain ID: {expectedChainId})
                 </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* Tabs */}
-        <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {(["bridge", "swap", "payment", "deploy"] as const).map((k) => (
-            <button
-              key={k}
-              onClick={() => setTab(k)}
-              disabled={k !== "bridge"}
-              className={[
-                "group relative rounded-2xl border p-4 text-left transition-all duration-200",
-                tab === k
-                  ? "border-blue-500/50 bg-blue-500/10 shadow-lg shadow-blue-500/20"
-                  : "border-slate-800 bg-slate-900/50 hover:border-slate-700 hover:bg-slate-900/80",
-                k !== "bridge" && "cursor-not-allowed opacity-50",
-              ].join(" ")}
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex-1">
-                  <div className="font-semibold text-white capitalize">{k}</div>
-                  <div className="mt-1 text-xs text-slate-400">
-                    {k === "bridge" ? "Live" : "Coming soon"}
-                  </div>
-                </div>
-                {k === "bridge" && (
-                  <div className="h-2 w-2 rounded-full bg-green-400 shadow-lg shadow-green-400/50" />
-                )}
-              </div>
-            </button>
-          ))}
-        </div>
-
-        {/* Main Content */}
-        <div className="mt-6 rounded-3xl border border-slate-800 bg-slate-900/50 p-6 shadow-2xl backdrop-blur-xl sm:p-8">
-          {tab !== "bridge" ? (
-            <div className="py-12 text-center">
-              <div className="text-6xl mb-4">🚧</div>
-              <div className="text-xl font-semibold text-white">Coming Soon</div>
-              <div className="mt-2 text-slate-400">This feature is under development</div>
-            </div>
-          ) : (
-            <>
-              {/* Bridge Header */}
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h2 className="text-2xl font-bold text-white">Bridge USDC</h2>
-                  <p className="mt-1 text-sm text-slate-400">
-                    Transfer USDC from ARC to other testnets
-                  </p>
-                </div>
-                <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-300">
-                  <div className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                  Forwarding Service
-                </div>
-              </div>
-
-              {/* Form */}
-              <div className="mt-8 space-y-5">
-                {/* Destination */}
-                <div>
-                  <label className="block text-sm font-medium text-slate-300">
-                    Destination Chain
-                  </label>
-                  <select
-                    value={destKey}
-                    onChange={(e) => setDestKey(e.target.value)}
-                    className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-800/50 px-4 py-3 text-white outline-none transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                  >
-                    {DESTS.map((d) => (
-                      <option key={d.key} value={d.key}>
-                        {d.name} (Domain {d.domain})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Amount */}
-                <div>
-                  <label className="block text-sm font-medium text-slate-300">
-                    Amount (USDC)
-                  </label>
-                  <div className="relative mt-2">
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={amountUsdc}
-                      onChange={(e) => setAmountUsdc(e.target.value)}
-                      placeholder="2.00"
-                      disabled={loading}
-                      className="w-full rounded-xl border border-slate-700 bg-slate-800/50 px-4 py-3 pr-16 text-white outline-none transition-all focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-50"
-                    />
-                    <div className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-medium text-slate-400">
-                      USDC
-                    </div>
-                  </div>
-                </div>
-
-                {/* Bridge Info */}
-                <div className="rounded-xl border border-slate-800 bg-slate-800/30 p-4">
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-slate-400">From:</span>
-                      <span className="font-medium text-white">ARC Testnet</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-400">To:</span>
-                      <span className="font-medium text-white">{dest.name}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-400">Estimated time:</span>
-                      <span className="font-medium text-white">~2-5 minutes</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Bridge Button */}
+        {/* Main Card */}
+        <div className="overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-xl">
+          {/* Tabs */}
+          <div className="border-b border-gray-200 bg-gradient-to-r from-purple-50 to-blue-50 px-6">
+            <div className="flex gap-2">
+              {tabs.map((t) => (
                 <button
-                  onClick={onBridge}
-                  disabled={!isConnected || loading || isWrongNetwork}
+                  key={t.key}
+                  onClick={() => t.enabled && setTab(t.key)}
+                  disabled={!t.enabled}
                   className={[
-                    "w-full rounded-xl px-6 py-4 font-semibold text-white transition-all duration-200",
-                    !isConnected || loading || isWrongNetwork
-                      ? "cursor-not-allowed bg-slate-700 opacity-50"
-                      : "bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 hover:from-blue-500 hover:via-purple-500 hover:to-pink-500 shadow-lg shadow-purple-500/25",
+                    "relative px-6 py-4 text-sm font-semibold transition-all",
+                    tab === t.key
+                      ? "text-purple-700"
+                      : t.enabled
+                      ? "text-gray-600 hover:text-gray-900"
+                      : "cursor-not-allowed text-gray-400",
                   ].join(" ")}
                 >
-                  {!isConnected
-                    ? "Connect Wallet to Bridge"
-                    : isWrongNetwork
-                    ? "Wrong Network"
-                    : loading
-                    ? "Processing..."
-                    : "Bridge USDC"}
+                  <div className="flex items-center gap-2">
+                    <span>{t.icon}</span>
+                    <span>{t.label}</span>
+                  </div>
+                  {tab === t.key && (
+                    <div className="absolute bottom-0 left-0 right-0 h-1 rounded-t-full bg-gradient-to-r from-purple-600 to-blue-600" />
+                  )}
                 </button>
+              ))}
+            </div>
+          </div>
 
-                {/* Status Messages */}
-                {status && (
-                  <div
-                    className={[
-                      "rounded-xl border p-4 text-sm",
-                      status.includes("✅")
-                        ? "border-green-500/20 bg-green-500/10 text-green-300"
-                        : status.includes("❌")
-                        ? "border-red-500/20 bg-red-500/10 text-red-300"
-                        : "border-blue-500/20 bg-blue-500/10 text-blue-300",
-                    ].join(" ")}
-                  >
-                    <div className="flex items-start gap-3">
-                      {loading && (
-                        <div className="mt-0.5 h-4 w-4 animate-spin rounded-full border-2 border-blue-400 border-t-transparent" />
-                      )}
-                      <div className="flex-1">{status}</div>
-                    </div>
-                    {txHash && (
-                      <a
-                        href={`https://explorer.testnet.arc.network/tx/${txHash}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="mt-2 inline-flex items-center gap-1 text-xs text-green-400 hover:text-green-300 underline"
+          {/* Content */}
+          <div className="p-8">
+            {tab !== "bridge" ? (
+              <div className="py-16 text-center">
+                <div className="mb-4 text-6xl">🚧</div>
+                <h3 className="mb-2 text-xl font-semibold text-gray-900">Coming Soon</h3>
+                <p className="text-gray-600">This feature is under development</p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {/* Title */}
+                <div className="text-center">
+                  <h2 className="text-2xl font-bold text-gray-900">Bridge Tokens</h2>
+                  <p className="mt-2 text-sm text-gray-600">
+                    {isConnected
+                      ? "Transfer USDC from ARC to other testnets"
+                      : "Connect your wallet to start bridging stablecoins"}
+                  </p>
+                </div>
+
+                {isConnected ? (
+                  <>
+                    {/* Bridge Form */}
+                    <div className="space-y-4">
+                      {/* Destination */}
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-gray-700">
+                          Destination Chain
+                        </label>
+                        <select
+                          value={destKey}
+                          onChange={(e) => setDestKey(e.target.value)}
+                          className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 shadow-sm transition-all focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-200"
+                        >
+                          {DESTS.map((d) => (
+                            <option key={d.key} value={d.key}>
+                              {d.name} (Domain {d.domain})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Amount */}
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-gray-700">
+                          Amount
+                        </label>
+                        <div className="relative">
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={amountUsdc}
+                            onChange={(e) => setAmountUsdc(e.target.value)}
+                            placeholder="0.00"
+                            disabled={loading}
+                            className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 pr-16 text-gray-900 shadow-sm transition-all focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-200 disabled:cursor-not-allowed disabled:bg-gray-100"
+                          />
+                          <div className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-semibold text-gray-500">
+                            USDC
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Info Box */}
+                      <div className="rounded-xl bg-gradient-to-r from-purple-50 to-blue-50 p-4">
+                        <div className="space-y-2 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">From</span>
+                            <span className="font-semibold text-gray-900">ARC Testnet</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">To</span>
+                            <span className="font-semibold text-gray-900">{dest.name}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">Estimated time</span>
+                            <span className="font-semibold text-gray-900">~2-5 minutes</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Bridge Button */}
+                      <button
+                        onClick={onBridge}
+                        disabled={loading || isWrongNetwork || !amountUsdc}
+                        className={[
+                          "w-full rounded-xl px-6 py-4 font-semibold text-white shadow-lg transition-all",
+                          loading || isWrongNetwork || !amountUsdc
+                            ? "cursor-not-allowed bg-gray-300"
+                            : "bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 active:scale-[0.98]",
+                        ].join(" ")}
                       >
-                        View transaction →
-                      </a>
-                    )}
+                        {loading ? (
+                          <div className="flex items-center justify-center gap-2">
+                            <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                            <span>Processing...</span>
+                          </div>
+                        ) : isWrongNetwork ? (
+                          "Wrong Network"
+                        ) : (
+                          "Bridge USDC"
+                        )}
+                      </button>
+
+                      {/* Status Messages */}
+                      {status && (
+                        <div
+                          className={[
+                            "rounded-xl border p-4 text-sm",
+                            status.includes("successful")
+                              ? "border-green-200 bg-green-50 text-green-800"
+                              : status.includes("Error")
+                              ? "border-red-200 bg-red-50 text-red-800"
+                              : "border-blue-200 bg-blue-50 text-blue-800",
+                          ].join(" ")}
+                        >
+                          <div className="flex items-start gap-3">
+                            {loading && (
+                              <div className="mt-0.5 h-4 w-4 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+                            )}
+                            <div className="flex-1">
+                              {status}
+                              {txHash && (
+                                <a
+                                  href={`https://explorer.testnet.arc.network/tx/${txHash}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-green-700 hover:text-green-900 underline"
+                                >
+                                  View transaction →
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Footer Note */}
+                    <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                      <div className="text-xs text-gray-600">
+                        <div className="mb-2 font-semibold text-gray-700">📝 Important Notes:</div>
+                        <ul className="ml-4 list-disc space-y-1">
+                          <li>Powered by Circle's CCTP protocol</li>
+                          <li>No destination gas tokens required</li>
+                          <li>Transactions typically complete in 2-5 minutes</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="py-12 text-center">
+                    <div className="mb-4 text-4xl">👛</div>
+                    <p className="text-gray-600">Connect your wallet to get started</p>
                   </div>
                 )}
-
-                {/* Note */}
-                <div className="rounded-xl border border-slate-800 bg-slate-800/20 p-4">
-                  <div className="text-xs text-slate-400">
-                    <div className="font-medium text-slate-300 mb-1">📝 Note:</div>
-                    <ul className="list-disc list-inside space-y-1">
-                      <li>Transactions use CCTP's Forwarding Service</li>
-                      <li>No destination gas tokens required</li>
-                      <li>Reverse bridging (testnet → ARC) coming soon</li>
-                    </ul>
-                  </div>
-                </div>
               </div>
-            </>
-          )}
+            )}
+          </div>
         </div>
 
         {/* Footer */}
-        <div className="mt-8 text-center text-xs text-slate-500">
-          <p>Powered by Circle's CCTP • Built on ARC Testnet</p>
+        <div className="mt-8 text-center">
+          <div className="inline-flex items-center gap-4 text-xs text-gray-500">
+            <span>Powered by Tempo Network</span>
+            <span>•</span>
+            <span>Testnet</span>
+            <span>•</span>
+            <a
+              href="https://docs.circle.com/stablecoins/cctp"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-purple-600 hover:text-purple-700 underline"
+            >
+              🔗 Chainlink CCIP
+            </a>
+          </div>
         </div>
       </div>
     </main>
