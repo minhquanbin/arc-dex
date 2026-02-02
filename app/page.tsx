@@ -105,6 +105,18 @@ export default function Home() {
       const fee = computeFeeUsdc();
       const totalToApprove = amount + fee;
 
+      setStatus("Checking USDC balance...");
+      const bal = await publicClient.readContract({
+        address: usdc,
+        abi: ERC20_ABI,
+        functionName: "balanceOf",
+        args: [address],
+      });
+
+      if (bal < totalToApprove) {
+        throw new Error("Số dư USDC không đủ (cần amount + 0.01 USDC fee)");
+      }
+
       setStatus("Checking USDC allowance...");
       const allowance = await publicClient.readContract({
         address: usdc,
@@ -132,6 +144,38 @@ export default function Home() {
       }
 
       const hookData = buildHookDataWithMemo(HOOK_DATA, memo);
+
+      setStatus("Simulating transaction...");
+      await publicClient.simulateContract({
+        address: router,
+        abi: ROUTER_ABI,
+        functionName: "bridge",
+        args: [
+          amount,
+          dest.domain,
+          addressToBytes32(recipientAddr as `0x${string}`),
+          maxFee,
+          minFinality,
+          hookData,
+        ],
+        account: address,
+      });
+
+      setStatus("Simulating transaction...");
+      await publicClient.simulateContract({
+        address: router,
+        abi: ROUTER_ABI,
+        functionName: "bridge",
+        args: [
+          amount,
+          dest.domain,
+          addressToBytes32(recipientAddr as `0x${string}`),
+          maxFee,
+          minFinality,
+          hookData,
+        ],
+        account: address,
+      });
 
       setStatus("Please confirm the bridge transaction in your wallet...");
       const burnHash = await walletClient.writeContract({
