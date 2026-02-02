@@ -87,7 +87,7 @@ export default function Home() {
         throw new Error(`Please switch to ARC Testnet (Chain ID: ${expectedChainId})`);
       }
 
-      const router = process.env.NEXT_PUBLIC_ARC_ROUTER as `0x${string}`;
+      const router = (process.env.NEXT_PUBLIC_ARC_ROUTER || "0x82657177d3b529E008cb766475F53CeFb0d95819") as `0x${string}`;
       const usdc = process.env.NEXT_PUBLIC_ARC_USDC_ADDRESS as `0x${string}`;
       const minFinality = Number(process.env.NEXT_PUBLIC_MIN_FINALITY_THRESHOLD || "1000");
 
@@ -154,7 +154,6 @@ export default function Home() {
       setTxHash(burnHash);
       setStatus("Bridge transaction successful!");
       setAmountUsdc("");
-      setMemo("");
       setMemo("");
     } catch (e: any) {
       console.error("Bridge error:", e);
@@ -316,39 +315,6 @@ export default function Home() {
                         />
                       </div>
 
-                      {/* Recipient */}
-                      <div>
-                        <label className="mb-2 block text-sm font-medium text-gray-700">
-                          Recipient (wallet B)
-                        </label>
-                        <input
-                          type="text"
-                          value={recipient}
-                          onChange={(e) => setRecipient(e.target.value)}
-                          placeholder={address || "0x..."}
-                          disabled={loading}
-                          className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 shadow-sm transition-all focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-200 disabled:cursor-not-allowed disabled:bg-gray-100"
-                        />
-                        <div className="mt-1 text-xs text-gray-500">
-                          Để trống = gửi về ví đang connect.
-                        </div>
-                      </div>
-
-                      {/* Memo */}
-                      <div>
-                        <label className="mb-2 block text-sm font-medium text-gray-700">
-                          Memo (optional, max 128 bytes)
-                        </label>
-                        <input
-                          type="text"
-                          value={memo}
-                          onChange={(e) => setMemo(e.target.value)}
-                          placeholder="Nhập nội dung chuyển (tùy chọn)"
-                          disabled={loading}
-                          className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 shadow-sm transition-all focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-200 disabled:cursor-not-allowed disabled:bg-gray-100"
-                        />
-                      </div>
-
                       {/* Amount */}
                       <div>
                         <label className="mb-2 block text-sm font-medium text-gray-700">
@@ -374,10 +340,6 @@ export default function Home() {
                       {/* Info Box */}
                       <div className="rounded-xl bg-gradient-to-r from-purple-50 to-blue-50 p-4">
                         <div className="space-y-2 text-sm">
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Service fee</span>
-                            <span className="font-semibold text-gray-900">{process.env.NEXT_PUBLIC_FEE_USDC || "0.01"} USDC</span>
-                          </div>
                           <div className="flex justify-between">
                             <span className="text-gray-600">Service fee</span>
                             <span className="font-semibold text-gray-900">{process.env.NEXT_PUBLIC_FEE_USDC || "0.01"} USDC</span>
