@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { DESTS } from "@/lib/chains";
@@ -51,6 +51,73 @@ const FEE_RECEIVER = (process.env.NEXT_PUBLIC_FEE_COLLECTOR ||
 const FEE_USDC = process.env.NEXT_PUBLIC_FEE_USDC || "0.01";
 
 type TabType = "swap" | "bridge" | "liquidity" | "payment" | "issuance";
+
+function ArcLogoIcon({ className }: { className?: string }) {
+  const gid = useId();
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 64 64"
+      className={className}
+      aria-label="ARC"
+      role="img"
+    >
+      <defs>
+        <linearGradient id={gid} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#7C3AED" />
+          <stop offset="1" stopColor="#2563EB" />
+        </linearGradient>
+      </defs>
+      <rect x="6" y="6" width="52" height="52" rx="14" fill={`url(#${gid})`} />
+      <text
+        x="32"
+        y="38"
+        textAnchor="middle"
+        fontFamily="ui-sans-serif, system-ui, -apple-system"
+        fontSize="18"
+        fontWeight="900"
+        fill="#fff"
+      >
+        ARC
+      </text>
+    </svg>
+  );
+}
+
+function UsdcIcon({ className }: { className?: string }) {
+  const gid = useId();
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 64 64"
+      className={className}
+      aria-label="USDC"
+      role="img"
+    >
+      <defs>
+        <linearGradient id={gid} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#24D6B5" />
+          <stop offset="0.55" stopColor="#5AB8FF" />
+          <stop offset="1" stopColor="#7C5CFF" />
+        </linearGradient>
+      </defs>
+      <circle cx="32" cy="32" r="30" fill="#fff" />
+      <circle cx="32" cy="32" r="26" fill={`url(#${gid})`} opacity="0.15" />
+      <circle cx="32" cy="32" r="26" fill="none" stroke={`url(#${gid})`} strokeWidth="6" />
+      <text
+        x="32"
+        y="39"
+        textAnchor="middle"
+        fontFamily="ui-sans-serif, system-ui, -apple-system"
+        fontSize="16"
+        fontWeight="900"
+        fill="#1F2937"
+      >
+        USDC
+      </text>
+    </svg>
+  );
+}
 
 export default function Home() {
   // Font: Space Grotesk (upload local woff2 to /public/fonts/ if you want the real font file)
@@ -431,7 +498,7 @@ export default function Home() {
         {/* Header */}
         <div className="mb-8 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <img src="/arc-logo.svg" alt="ARC" className="h-10 w-10" />
+            <ArcLogoIcon className="h-10 w-10" />
             <h1 className="bg-gradient-to-r from-emerald-500 via-sky-500 to-indigo-500 bg-clip-text text-4xl font-bold text-transparent">
               Arc Bridge
             </h1>
@@ -585,7 +652,7 @@ export default function Home() {
                             className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 pr-16 text-gray-900 shadow-sm transition-all focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-200 disabled:cursor-not-allowed disabled:bg-gray-100"
                           />
                           <div className="absolute right-4 top-1/2 -translate-y-1/2">
-                            <img src="/usdc.svg" alt="USDC" className="h-6 w-6" />
+                            <UsdcIcon className="h-6 w-6" />
                           </div>
                         </div>
                         <div className="mt-1 text-xs text-gray-500">Suggested minimum: 5 USDC</div>
@@ -598,14 +665,14 @@ export default function Home() {
                             <span className="text-gray-600">Bridge amount</span>
                             <span className="flex items-center gap-2 font-semibold text-gray-900">
                               {amountUsdc || "0"}
-                              <img src="/usdc.svg" alt="USDC" className="h-4 w-4" />
+                              <UsdcIcon className="h-4 w-4" />
                             </span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-gray-600">Service fee</span>
                             <span className="flex items-center gap-2 font-semibold text-gray-900">
                               {FEE_USDC}
-                              <img src="/usdc.svg" alt="USDC" className="h-4 w-4" />
+                              <UsdcIcon className="h-4 w-4" />
                             </span>
                           </div>
                           <div className="flex justify-between">
