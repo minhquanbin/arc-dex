@@ -144,134 +144,28 @@ export default function Home() {
 
   const dest = useMemo(() => DESTS.find((d) => d.key === destKey) || DESTS[0], [destKey]);
 
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [historyError, setHistoryError] = useState<string>("");
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("arc_bridge_history");
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as BridgeHistoryItem[];
+      if (Array.isArray(parsed)) setHistory(parsed);
+    } catch {
+      // ignore
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("arc_bridge_history", JSON.stringify(history.slice(0, 200)));
+    } catch {
+      // ignore
+    }
+  }, [history]);
 
   const expectedChainId = Number(process.env.NEXT_PUBLIC_ARC_CHAIN_ID || 5042002);
   const isWrongNetwork = isConnected && chain?.id !== expectedChainId;
-
-  const router = (process.env.NEXT_PUBLIC_ARC_ROUTER ||
-    "0xEc02A909701A8eB9C84B93b55B6d4A7ca215CFca") as `0x${string}`;
-
-  async function findFromBlockForCutoff(cutoffTimestampSec: bigint) {
-    if (!publicClient) return 0n;
-
-    const latest = await publicClient.getBlock();
-    const latestNumber = latest.number ?? 0n;
-
-    if (latest.timestamp <= cutoffTimestampSec) return latestNumber;
-
-    // Step back in big chunks until we are <= cutoff, then binary search inside the chunk.
-    const step = 50_000n;
-    let probe = latestNumber;
-
-    while (probe > 0n) {
-      const b = await publicClient.getBlock({ blockNumber: probe });
-      if (b.timestamp <= cutoffTimestampSec) break;
-      if (probe <= step) {
-        probe = 0n;
-        break;
-      }
-      probe -= step;
-    }
-
-    let low = probe;
-    let high = probe + step;
-    if (high > latestNumber) high = latestNumber;
-
-    // Invariant: block(low).timestamp <= cutoff, block(high).timestamp > cutoff (unless low==0)
-    while (high - low > 1n) {
-      const mid = (low + high) / 2n;
-      const b = await publicClient.getBlock({ blockNumber: mid });
-      if (b.timestamp <= cutoffTimestampSec) low = mid;
-      else high = mid;
-    }
-
-    return high;
-  }
-
-  async function refreshHistory() {
-    if (!publicClient || !isConnected || !address || isWrongNetwork) return;
-
-    setHistoryLoading(true);
-    setHistoryError("");
-
-    try {
-      const tenDaysMs = 10 * 24 * 60 * 60 * 1000;
-      const cutoffSec = BigInt(Math.floor((Date.now() - tenDaysMs) / 1000));
-      const fromBlock = await findFromBlockForCutoff(cutoffSec);
-
-      const [sent, received] = await Promise.all([
-        publicClient.getLogs({
-          address: router,
-          abi: ROUTER_ABI,
-          eventName: "BridgeInitiated",
-          args: { user: address },
-          fromBlock,
-          toBlock: "latest",
-        }),
-        publicClient.getLogs({
-          address: router,
-          abi: ROUTER_ABI,
-          eventName: "BridgeInitiated",
-          args: { recipient: address },
-          fromBlock,
-          toBlock: "latest",
-        }),
-      ]);
-
-      const all = [...sent, ...received];
-
-      const unique = new Map<string, (typeof all)[number]>();
-      for (const l of all) {
-        const key = `${l.transactionHash}-${l.logIndex}`;
-        if (!unique.has(key)) unique.set(key, l);
-      }
-
-      const logs = Array.from(unique.values());
-
-      const blockNumbers = Array.from(
-        new Set(logs.map((l) => l.blockNumber).filter((n): n is bigint => typeof n === "bigint"))
-      );
-
-      const blocks = await Promise.all(
-        blockNumbers.map(async (bn) => {
-          const b = await publicClient.getBlock({ blockNumber: bn });
-          return [bn, b] as const;
-        })
-      );
-      const blockByNumber = new Map(blocks);
-
-      const items: BridgeHistoryItem[] = logs
-        .map((l) => {
-          const b = l.blockNumber ? blockByNumber.get(l.blockNumber) : undefined;
-          const ts = b ? Number(b.timestamp) * 1000 : Date.now();
-          return {
-            ts,
-            from: l.args.user as `0x${string}`,
-            to: l.args.recipient as `0x${string}`,
-            txHash: l.transactionHash as `0x${string}`,
-            memo: (l.args.memo as string) || undefined,
-          };
-        })
-        .filter((i) => i.ts >= (Date.now() - tenDaysMs))
-        .sort((a, b) => b.ts - a.ts)
-        .slice(0, 200);
-
-      setHistory(items);
-      setHistoryPage(0);
-    } catch (e: any) {
-      console.error("Failed to refresh history:", e);
-      setHistoryError(e?.shortMessage || e?.message || "Failed to load history");
-    } finally {
-      setHistoryLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    refreshHistory();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isConnected, address, isWrongNetwork, router, publicClient]);
 
   async function switchToARC() {
     try {
@@ -702,7 +596,7 @@ export default function Home() {
         {isWrongNetwork && (
           <div className="mb-6 rounded-xl border-2 border-orange-300 bg-orange-50 p-4">
             <div className="flex items-start gap-3">
-              <div className="text-2xl">⚠️</div>
+              <div className="text-2xl">!</div>
               <div className="flex-1">
                 <div className="font-semibold text-orange-900">Wrong network</div>
                 <div className="mt-1 text-sm text-orange-700">Please switch to ARC Testnet (Chain ID: {expectedChainId})</div>
@@ -949,176 +843,60 @@ export default function Home() {
 
                     {/* Right: Bridge History */}
                     <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-lg">
-                      {/* Header with Title and Refresh */}
                       <div className="mb-3 flex items-center justify-between">
-                        <div className="text-sm font-semibold text-gray-900">
-                          Transaction History <span className="text-xs font-normal text-gray-500">(10 days)</span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={refreshHistory}
-                          disabled={historyLoading}
-                          className="rounded-lg border border-gray-200 bg-white p-1.5 text-gray-600 transition-all hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-                          title="Refresh history"
-                        >
-                          <svg
-                            className={`h-4 w-4 ${historyLoading ? 'animate-spin' : ''}`}
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                            />
-                          </svg>
-                        </button>
-                      </div>
-
-                      {/* Loading State */}
-                      {historyLoading && (
-                        <div className="flex items-center justify-center py-8">
-                          <div className="h-8 w-8 animate-spin rounded-full border-4 border-purple-200 border-t-purple-600" />
-                        </div>
-                      )}
-
-                      {/* Error State */}
-                      {historyError && !historyLoading && (
-                        <div className="rounded-lg border border-red-200 bg-red-50 p-3">
-                          <div className="text-xs font-semibold text-red-800">Failed to load history</div>
-                          <div className="mt-1 text-xs text-red-600">{historyError}</div>
+                        <div className="text-sm font-semibold text-gray-900">Bridge history</div>
+                        <div className="flex items-center gap-2">
                           <button
                             type="button"
-                            onClick={refreshHistory}
-                            className="mt-2 text-xs font-semibold text-red-700 underline hover:text-red-900"
+                            onClick={() => setHistoryPage((p) => Math.max(0, p - 1))}
+                            disabled={historyPage === 0}
+                            className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
                           >
-                            Try again
+                            Prev
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setHistoryPage((p) => p + 1)}
+                            disabled={(historyPage + 1) * 10 >= history.length}
+                            className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Next
                           </button>
                         </div>
-                      )}
+                      </div>
 
-                      {/* Empty State */}
-                      {!historyLoading && !historyError && history.length === 0 && (
-                        <div className="py-8 text-center">
-                          <div className="mb-2 text-3xl">📭</div>
-                          <div className="text-sm font-medium text-gray-600">No transactions yet</div>
-                          <div className="mt-1 text-xs text-gray-500">Your bridge history will appear here</div>
-                        </div>
-                      )}
-
-                      {/* History List */}
-                      {!historyLoading && !historyError && history.length > 0 && (
-                        <>
-                          <div className="space-y-2">
-                            {history.slice(historyPage * 10, historyPage * 10 + 10).map((h) => {
-                              const isSent = h.from.toLowerCase() === address?.toLowerCase();
-                              const isReceived = h.to.toLowerCase() === address?.toLowerCase();
-                              
-                              return (
-                                <div
-                                  key={`${h.txHash}-${h.ts}`}
-                                  className={`rounded-lg border p-3 shadow-sm transition-all hover:shadow-md ${
-                                    isSent && !isReceived
-                                      ? 'border-orange-200 bg-orange-50'
-                                      : isReceived && !isSent
-                                      ? 'border-green-200 bg-green-50'
-                                      : 'border-gray-200 bg-gray-50'
-                                  }`}
+                      {history.length === 0 ? (
+                        <div className="text-sm text-gray-500">No transactions yet.</div>
+                      ) : (
+                        <div className="space-y-2">
+                          {history.slice(historyPage * 10, historyPage * 10 + 10).map((h) => (
+                            <div key={`${h.txHash}-${h.ts}`} className="rounded-lg bg-gray-50 p-3 shadow-sm">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="text-xs text-gray-600">{new Date(h.ts).toLocaleString()}</div>
+                                <a
+                                  href={`https://testnet.arcscan.app/tx/${h.txHash}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-xs font-semibold text-[#725a7a] underline"
                                 >
-                                  {/* Header: Time + Type Badge + TX Link */}
-                                  <div className="flex flex-wrap items-center justify-between gap-2">
-                                    <div className="flex items-center gap-2">
-                                      <div className="text-xs text-gray-600">
-                                        {new Date(h.ts).toLocaleString()}
-                                      </div>
-                                      {isSent && !isReceived && (
-                                        <span className="rounded-full bg-orange-600 px-2 py-0.5 text-[10px] font-semibold text-white">
-                                          SENT
-                                        </span>
-                                      )}
-                                      {isReceived && !isSent && (
-                                        <span className="rounded-full bg-green-600 px-2 py-0.5 text-[10px] font-semibold text-white">
-                                          RECEIVED
-                                        </span>
-                                      )}
-                                      {isSent && isReceived && (
-                                        <span className="rounded-full bg-purple-600 px-2 py-0.5 text-[10px] font-semibold text-white">
-                                          SELF
-                                        </span>
-                                      )}
-                                    </div>
-                                    <a
-                                      href={`https://testnet.arcscan.app/tx/${h.txHash}`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="text-xs font-semibold text-[#725a7a] underline hover:text-[#5a4560]"
-                                    >
-                                      View TX →
-                                    </a>
-                                  </div>
-
-                                  {/* Addresses */}
-                                  <div className="mt-2 flex items-center text-sm text-gray-900">
-                                    <span className="font-semibold">
-                                      {h.from.slice(0, 6)}…{h.from.slice(-4)}
-                                    </span>
-                                    <span className="mx-2 text-gray-400">
-                                      {isSent && !isReceived ? '→' : isReceived && !isSent ? '←' : '↔'}
-                                    </span>
-                                    <span className="font-semibold">
-                                      {h.to.slice(0, 6)}…{h.to.slice(-4)}
-                                    </span>
-                                  </div>
-
-                                  {/* Memo/Message */}
-                                  {h.memo && (
-                                    <div className="mt-2 rounded-md border border-gray-200 bg-white px-2 py-1.5">
-                                      <div className="text-[10px] font-semibold uppercase text-gray-500">
-                                        Message
-                                      </div>
-                                      <div className="mt-0.5 text-xs text-gray-800">{h.memo}</div>
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-
-                          {/* Pagination */}
-                          {history.length > 10 && (
-                            <div className="mt-3 flex items-center justify-between border-t border-gray-200 pt-3">
-                              <div className="text-xs text-gray-500">
-                                Showing {historyPage * 10 + 1}-{Math.min((historyPage + 1) * 10, history.length)} of {history.length}
+                                  TX
+                                </a>
                               </div>
-                              <div className="flex items-center gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => setHistoryPage((p) => Math.max(0, p - 1))}
-                                  disabled={historyPage === 0}
-                                  className="rounded-lg border border-gray-200 bg-white px-3 py-1 text-xs font-semibold text-gray-700 transition-all hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-                                >
-                                  ← Prev
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setHistoryPage((p) => p + 1)}
-                                  disabled={(historyPage + 1) * 10 >= history.length}
-                                  className="rounded-lg border border-gray-200 bg-white px-3 py-1 text-xs font-semibold text-gray-700 transition-all hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-                                >
-                                  Next →
-                                </button>
+                              <div className="mt-1 text-sm text-gray-900">
+                                <span className="font-semibold">{h.from.slice(0, 6)}…{h.from.slice(-4)}</span>
+                                <span className="mx-2 text-gray-400">→</span>
+                                <span className="font-semibold">{h.to.slice(0, 6)}…{h.to.slice(-4)}</span>
                               </div>
+                              {h.memo && <div className="mt-1 text-xs text-gray-600">Message: {h.memo}</div>}
                             </div>
-                          )}
-                        </>
+                          ))}
+                        </div>
                       )}
                     </div>
                   </div>
                 ) : (
                   <div className="py-12 text-center">
-                    <div className="mb-4 text-4xl">🔗</div>
+                    <div className="mb-4 text-4xl">Wallet</div>
                     <p className="text-gray-600">Connect your wallet to start</p>
                   </div>
                 )}
