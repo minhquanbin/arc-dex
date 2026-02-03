@@ -201,8 +201,8 @@ export default function Home() {
       const cutoffSec = BigInt(Math.floor((Date.now() - tenDaysMs) / 1000));
       const fromBlock = await findFromBlockForCutoff(cutoffSec);
 
-      // Fetch all BridgeInitiated events, then filter by user/recipient
-      const allLogs = await publicClient.getLogs({
+      // Fetch all BridgeInitiated events using getContractEvents
+      const allLogs = await publicClient.getContractEvents({
         address: router,
         abi: ROUTER_ABI,
         eventName: "BridgeInitiated",
