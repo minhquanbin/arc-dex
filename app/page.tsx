@@ -201,24 +201,22 @@ export default function Home() {
       const cutoffSec = BigInt(Math.floor((Date.now() - tenDaysMs) / 1000));
       const fromBlock = await findFromBlockForCutoff(cutoffSec);
 
-      const [sent, received] = await Promise.all([
-        publicClient.getLogs({
-          address: router,
-          abi: ROUTER_ABI,
-          eventName: "BridgeInitiated",
-          args: { user: address },
-          fromBlock,
-          toBlock: "latest",
-        }),
-        publicClient.getLogs({
-          address: router,
-          abi: ROUTER_ABI,
-          eventName: "BridgeInitiated",
-          args: { recipient: address },
-          fromBlock,
-          toBlock: "latest",
-        }),
-      ]);
+      // Fetch all BridgeInitiated events, then filter by user/recipient
+      const allLogs = await publicClient.getLogs({
+        address: router,
+        abi: ROUTER_ABI,
+        eventName: "BridgeInitiated",
+        fromBlock,
+        toBlock: "latest",
+      });
+
+      // Filter for sent (user === address) and received (recipient === address)
+      const sent = allLogs.filter(
+        (log) => log.args.user?.toLowerCase() === address?.toLowerCase()
+      );
+      const received = allLogs.filter(
+        (log) => log.args.recipient?.toLowerCase() === address?.toLowerCase()
+      );
 
       const all = [...sent, ...received];
 
