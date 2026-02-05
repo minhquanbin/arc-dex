@@ -252,7 +252,7 @@ export default function Home() {
               </>
             ) : (
               <div className="py-12 text-center">
-                <div className="mb-4 text-4xl">👛</div>
+                
                 <p className="text-gray-600">Connect your wallet to start</p>
               </div>
             )}
