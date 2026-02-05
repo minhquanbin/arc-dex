@@ -64,3 +64,8 @@ next-env.d.ts
 # Sensitive local files
 mnemonics.txt
 proxies.txt
+
+# Circle deployment artifacts
+stablecoin-progress.json
+deployed-stablecoins.json
+logs/
