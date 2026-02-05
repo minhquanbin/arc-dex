@@ -100,7 +100,6 @@ export default function BridgeTab() {
   const [txHash, setTxHash] = useState<string>("");
 
   const [history, setHistory] = useState<BridgeHistoryItem[]>([]);
-  const [history, setHistory] = useState<BridgeHistoryItem[]>([]);
   const [historyPage, setHistoryPage] = useState(0);
 
   // Load history từ localStorage khi component mount
