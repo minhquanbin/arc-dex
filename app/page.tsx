@@ -124,7 +124,7 @@ export default function Home() {
           <div className="flex items-center gap-3">
             <ArcLogoIcon className="h-10 w-10" />
             <h1 className="bg-gradient-to-r from-[#ff7582] to-[#725a7a] bg-clip-text text-4xl font-bold text-transparent">
-              Arc Bridge
+              Arc [TESTNET]
             </h1>
           </div>
           <ConnectButton.Custom>
