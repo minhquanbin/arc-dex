@@ -569,10 +569,7 @@ export default function BridgeTab() {
               </div>
             )}
 
-            {/* Donate */}
-            <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 shadow-md">
-              <div className="text-xs text-gray-600">Donate: 0xA87Bd559fd6F2646225AcE941bA6648Ec1BAA9AF</div>
-            </div>
+
           </div>
         </div>
 

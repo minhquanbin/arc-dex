@@ -5,8 +5,10 @@ import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useAccount } from "wagmi";
 import BridgeTab from "@/components/tabs/BridgeTab";
 import IssuanceTab from "@/components/tabs/IssuanceTab";
+import PaymentsTab from "@/components/tabs/PaymentsTab";
 
-type TabType = "swap" | "bridge" | "liquidity" | "payment" | "issuance";
+type TabType = "swap" | "bridge" | "invoices" | "payment" | "issuance";
+
 
 function ArcLogoIcon({ className }: { className?: string }) {
   const gid0 = useId();
@@ -208,11 +210,10 @@ export default function Home() {
           }
         >
           {/* Tabs */}
-          <div className="rounded-2xl bg-white/80 backdrop-blur shadow-xl p-2">
-            <div className="flex gap-2">
-              {(["bridge", "issuance", "liquidity", "swap", "payment"] as TabType[]).map((t) => {
-                const enabled = t === "bridge" || t === "issuance";
-                const active = tab === t;
+          <div className="rounded-2xl bg-white/80 backdrop-blur shadow-xl p-2">            <div className="flex gap-2">
+              {(["bridge", "issuance", "payment", "invoices"] as TabType[]).map((t) => {
+                const enabled = t === "bridge" || t === "issuance" || t === "payment";
+                const active = tab === t;;
 
                 const base = "flex-1 px-6 py-4 text-lg font-semibold transition-all rounded-xl";
 
@@ -243,7 +244,8 @@ export default function Home() {
               <>
                 {tab === "bridge" && <BridgeTab />}
                 {tab === "issuance" && <IssuanceTab />}
-                {tab !== "bridge" && tab !== "issuance" && (
+                {tab === "payment" && <PaymentsTab />}
+                {tab !== "bridge" && tab !== "issuance" && tab !== "payment" && (
                   <div className="py-12 text-center">
                     <div className="mb-4 text-4xl">🚧</div>
                     <p className="text-gray-600">This feature is coming soon!</p>
@@ -261,7 +263,22 @@ export default function Home() {
 
         {/* Footer */}
         <div className="mt-8 text-center">
-          <div className="text-xs text-gray-500">Powered by 1992evm</div>
+          <div className="flex items-center justify-center gap-2 text-xs text-gray-500">
+            <span>Powered by 1992evm</span>
+            <a
+              href="https://x.com/1992evm"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center"
+              aria-label="1992evm on X"
+              title="1992evm on X"
+            >
+              <img src="/chain-icons/logoX.svg" alt="X" className="h-4 w-4" />
+            </a>
+          </div>
+          <div className="mt-1 text-xs text-gray-500">
+            Donate: 0xA87Bd559fd6F2646225AcE941bA6648Ec1BAA9AF
+          </div>
           <div className="mt-1 text-[11px] text-gray-400">
             Chain logos are sourced from Chainlink Docs and Codex Docs.
           </div>

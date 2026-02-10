@@ -5,6 +5,14 @@
   --foreground: #171717;
 }
 
+/* Light-surface cards used inside Payments for better contrast */
+.payments-scope .arc-card-light {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(17, 24, 39, 0.10);
+  border-radius: 12px;
+  color: #111827;
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #0a0a0a;
@@ -16,4 +24,54 @@ body {
   color: var(--foreground);
   background: var(--background);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Payments tab: force the "designed" gray field background */
+.payments-scope input[type="text"],
+.payments-scope input[type="number"],
+.payments-scope input[type="time"],
+.payments-scope select,
+.payments-scope textarea {
+  background-color: #ffffff !important;
+  color: #111827 !important; /* slate-900 */
+  border: 1px solid rgba(17, 24, 39, 0.15) !important;
+  border-radius: 10px !important;
+}
+
+.payments-scope input::placeholder,
+.payments-scope textarea::placeholder {
+  color: rgba(17, 24, 39, 0.45) !important;
+}
+
+/* Make sure native select styling doesn't wash out the background */
+.payments-scope select {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+}
+
+/* Make inputs feel consistent with Bridge/Issuance focus */
+.payments-scope input[type="text"]:focus,
+.payments-scope input[type="number"]:focus,
+.payments-scope input[type="time"]:focus,
+.payments-scope select:focus,
+.payments-scope textarea:focus {
+  outline: none !important;
+  border-color: rgba(255, 117, 130, 0.85) !important;
+  box-shadow: 0 0 0 3px rgba(255, 117, 130, 0.25) !important;
+}
+
+/* Normalize "card" framing across tabs (Bridge/Issuance/Payments) */
+.payments-scope .arc-card {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+}
+
+/* Light-surface cards used inside Payments for better contrast */
+.payments-scope .arc-card-light {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(17, 24, 39, 0.10);
+  border-radius: 12px;
+  color: #111827;
 }

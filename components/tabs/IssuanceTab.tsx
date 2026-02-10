@@ -588,7 +588,7 @@ export default function IssuanceTab() {
                   />
                   <button
                     onClick={handleAutoGenerate}
-                    className="px-4 py-3 bg-gradient-to-r from-pink-500 to-purple-600 text-white text-sm font-medium rounded-lg hover:from-pink-600 hover:to-purple-700 transition-colors"
+                    className={gradientButtonClass(false, "px-4 py-3 text-sm")}
                   >
                     Random
                   </button>
@@ -735,7 +735,7 @@ export default function IssuanceTab() {
               <p className="text-xs text-gray-500 text-center">
                 {deployMode === "wallet"
                   ? "Deploys an ERC-20 on ARC via the connected wallet."
-                  : "Dùng Circle Smart Contract Platform để deploy"}
+                  : "Circle Smart Contract Platform"}
               </p>
             </div>
           </div>
