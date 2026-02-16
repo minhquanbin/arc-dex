@@ -1,10 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
-import { parseUnits } from "viem";
-
-import { ARC_CHAIN, OTHER_EVM_CHAINS, type EvmChainConfig } from "@/lib/chains";
+import { DESTS } from "@/lib/chains";
 import {
   ERC20_ABI,
   ROUTER_ABI,
@@ -15,6 +13,7 @@ import {
   validateAmount,
   validateMemo,
 } from "@/lib/cctp";
+import { parseUnits } from "viem";
 
 const TOKEN_MESSENGER_V2_FEE_ABI = [
   {
@@ -45,13 +44,9 @@ const TOKEN_MESSENGER_V2_ABI = [
   },
 ] as const;
 
-const DEFAULT_FEE_RECEIVER = "0xA87Bd559fd6F2646225AcE941bA6648Ec1BAA9AF" as const;
-
 const FEE_RECEIVER = (process.env.NEXT_PUBLIC_FEE_COLLECTOR ||
-  DEFAULT_FEE_RECEIVER) as `0x${string}`;
+  "0xA87Bd559fd6F2646225AcE941bA6648Ec1BAA9AF") as `0x${string}`;
 const FEE_USDC = process.env.NEXT_PUBLIC_FEE_USDC || "0.01";
-
-type Direction = "ARC_TO_OTHER" | "OTHER_TO_ARC";
 
 type BridgeHistoryItem = {
   ts: number;
@@ -90,142 +85,74 @@ function UsdcIcon({ className }: { className?: string }) {
   );
 }
 
-function getDestLabel(c: EvmChainConfig) {
-  return c.name;
-}
-
 export default function BridgeTab() {
   const { address, isConnected, chain } = useAccount();
   const publicClient = usePublicClient();
   const { data: walletClient } = useWalletClient();
 
-  const enabledOtherChains = OTHER_EVM_CHAINS;
-  const enabledOtherChainKeys = enabledOtherChains.map((c) => c.key).join(", ");
-
-  const [direction, setDirection] = useState<Direction>("ARC_TO_OTHER");
-
-  const [sourceKey, setSourceKey] = useState<EvmChainConfig["key"]>(
-    enabledOtherChains[0]?.key || "ETH_SEPOLIA"
-  );
-  const [sourceOpen, setSourceOpen] = useState(false);
-
-  const [destKey, setDestKey] = useState<EvmChainConfig["key"]>(
-    enabledOtherChains[0]?.key || "ETH_SEPOLIA"
-  );
+  const [destKey, setDestKey] = useState(DESTS[0].key);
   const [destOpen, setDestOpen] = useState(false);
-
   const [amountUsdc, setAmountUsdc] = useState("");
   const [recipient, setRecipient] = useState<string>("");
   const [memo, setMemo] = useState<string>("");
-
   const [status, setStatus] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [txHash, setTxHash] = useState<string>("");
-  const [feeTxHash, setFeeTxHash] = useState<string>("");
 
   const [history, setHistory] = useState<BridgeHistoryItem[]>([]);
   const [historyPage, setHistoryPage] = useState(0);
 
-  const otherChainsByKey = useMemo(() => {
-    const m = new Map<string, EvmChainConfig>();
-    for (const c of enabledOtherChains) m.set(c.key, c);
-    return m;
-  }, [enabledOtherChains]);
-
-  const source = useMemo<EvmChainConfig>(() => {
-    if (direction === "ARC_TO_OTHER") return ARC_CHAIN;
-    return otherChainsByKey.get(String(sourceKey)) || ARC_CHAIN;
-  }, [direction, otherChainsByKey, sourceKey]);
-
-  const dest = useMemo<EvmChainConfig>(() => {
-    if (direction === "OTHER_TO_ARC") return ARC_CHAIN;
-    return otherChainsByKey.get(String(destKey)) || ARC_CHAIN;
-  }, [direction, otherChainsByKey, destKey]);
-
-  const hasOtherChains = enabledOtherChains.length > 0;
-
-  const isWrongNetwork = isConnected && chain?.id !== source.chainId;
-
-  useEffect(() => {
-    // direction flips also affect what options are valid
-    if (direction === "ARC_TO_OTHER") {
-      if (enabledOtherChains.length > 0) setDestKey(enabledOtherChains[0].key);
-    } else {
-      if (enabledOtherChains.length > 0) setSourceKey(enabledOtherChains[0].key);
-      setDestKey("ARC_TESTNET");
-    }
-    setDestOpen(false);
-    setSourceOpen(false);
-  }, [direction, enabledOtherChains]);
-
-  // Load history from localStorage on mount
+  // Load history từ localStorage khi component mount
   useEffect(() => {
     try {
       const saved = localStorage.getItem("bridge_history");
-      if (saved) setHistory(JSON.parse(saved));
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        setHistory(parsed);
+      }
     } catch (error) {
       console.error("Failed to load bridge history:", error);
     }
   }, []);
 
-  // Save history
+  // Save history vào localStorage mỗi khi history thay đổi
   useEffect(() => {
     try {
-      if (history.length > 0) localStorage.setItem("bridge_history", JSON.stringify(history));
+      if (history.length > 0) {
+        localStorage.setItem("bridge_history", JSON.stringify(history));
+      }
     } catch (error) {
       console.error("Failed to save bridge history:", error);
     }
   }, [history]);
 
-  async function switchToChain(target: EvmChainConfig) {
-    if (!window.ethereum) throw new Error("No injected wallet found (window.ethereum).");
-    const chainIdHex = `0x${target.chainId.toString(16)}`;
+  const dest = useMemo(() => DESTS.find((d) => d.key === destKey) || DESTS[0], [destKey]);
 
-    try {
-      await window.ethereum.request({
-        method: "wallet_switchEthereumChain",
-        params: [{ chainId: chainIdHex }],
-      });
-    } catch (switchError: any) {
-      if (switchError?.code !== 4902) throw switchError;
-      if (!target.rpcUrl) throw new Error(`Missing RPC URL for ${target.name}.`);
+  const expectedChainId = Number(process.env.NEXT_PUBLIC_ARC_CHAIN_ID || 5042002);
+  const isWrongNetwork = isConnected && chain?.id !== expectedChainId;
 
-      await window.ethereum.request({
-        method: "wallet_addEthereumChain",
-        params: [
-          {
-            chainId: chainIdHex,
-            chainName: target.name,
-            nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
-            rpcUrls: [target.rpcUrl],
-            blockExplorerUrls: target.explorerUrl ? [target.explorerUrl] : undefined,
-          },
-        ],
-      });
-    }
-  }
-
-  function computeMaxFee(amountUsdcStr: string, destinationDomain: number) {
-    const amount = parseUnits(amountUsdcStr, 6);
-
-    // Existing heuristic (kept)
+  // Compute maxFee
+  function computeMaxFee(amountUsdc: string, destinationDomain: number) {
+    const amount = parseUnits(amountUsdc, 6);
     const minForwardFeeUsdc = destinationDomain === 0 ? "1.25" : "0.2";
     const minForwardFee = parseUnits(minForwardFeeUsdc, 6);
-
     const maxFeeBps = BigInt(process.env.NEXT_PUBLIC_MAX_FEE_BPS || "500");
     const maxFeeFromPct = (amount * maxFeeBps) / 10000n;
-
     let maxFeeToUse = maxFeeFromPct < minForwardFee ? minForwardFee : maxFeeFromPct;
-
     const maxFeeUsdcCapStr = process.env.NEXT_PUBLIC_MAX_FEE_USDC_CAP || "0";
     const maxFeeUsdcCap = parseUnits(maxFeeUsdcCapStr, 6);
-    if (maxFeeUsdcCap > 0n && maxFeeToUse > maxFeeUsdcCap) maxFeeToUse = maxFeeUsdcCap;
 
-    // Must be strictly less than amount
+    if (maxFeeUsdcCap > 0n && maxFeeToUse > maxFeeUsdcCap) {
+      maxFeeToUse = maxFeeUsdcCap;
+    }
+
     const maxFeeCap = amount - 1n;
     if (maxFeeToUse > maxFeeCap) {
       throw new Error(
-        `Amount is too small for maxFee constraints. Amount: ${Number(amount) / 1e6} USDC`
+        `Amount is too small for maxFee constraints. ` +
+          `Amount: ${Number(amount) / 1e6} USDC, ` +
+          `computed maxFee: ${Number(maxFeeToUse) / 1e6} USDC, ` +
+          `minFee: ${Number(minForwardFee) / 1e6} USDC (domain ${destinationDomain})`
       );
     }
 
@@ -236,7 +163,6 @@ export default function BridgeTab() {
     try {
       setStatus("");
       setTxHash("");
-      setFeeTxHash("");
       setLoading(true);
 
       if (!isConnected || !address || !walletClient || !publicClient) {
@@ -244,33 +170,23 @@ export default function BridgeTab() {
       }
 
       if (isWrongNetwork) {
-        throw new Error(`Please switch to ${source.name} (Chain ID: ${source.chainId})`);
+        throw new Error(`Please switch to ARC Testnet (Chain ID: ${expectedChainId})`);
       }
 
-      setStatus("Validating inputs...");
-      validateAmount(amountUsdc);
-      if (memo) validateMemo(memo);
-
-      let recipientAddr: `0x${string}`;
-      recipientAddr = recipient.trim() ? validateRecipient(recipient.trim()) : address;
-
+      const router = (process.env.NEXT_PUBLIC_ARC_ROUTER ||
+        "0xEc02A909701A8eB9C84B93b55B6d4A7ca215CFca") as `0x${string}`;
+      let arcUsdc = ((process.env.NEXT_PUBLIC_ARC_USDC ||
+        process.env.NEXT_PUBLIC_ARC_USDC_ADDRESS) ||
+        "0x3600000000000000000000000000000000000000") as `0x${string}`;
       const minFinality = Number(process.env.NEXT_PUBLIC_MIN_FINALITY_THRESHOLD || "1000");
-      const finalHookData = buildHookDataWithMemo(HOOK_DATA, memo);
 
-      // Resolve CCTP addresses for the current *source chain*
-      let usdc: `0x${string}`;
-      let tokenMessengerV2Addr: `0x${string}`;
-      let destinationCallerBytes32: `0x${string}`;
-
-      // Service fee (ARC only, current design)
       let feeCollector = FEE_RECEIVER;
       let feeAmount = parseUnits(FEE_USDC, 6);
+      let tokenMessengerV2Addr: `0x${string}` | "" = "";
+      let destinationCallerBytes32: `0x${string}` | "" = "";
 
-      if (direction === "ARC_TO_OTHER") {
-        const router = (process.env.NEXT_PUBLIC_ARC_ROUTER ||
-          "0xEc02A909701A8eB9C84B93b55B6d4A7ca215CFca") as `0x${string}`;
-
-        setStatus("Reading Router config...");
+      setStatus("Reading Router config...");
+      try {
         const [routerUsdc, routerFeeCollector, routerServiceFee, routerDestCaller, routerTokenMessengerV2] =
           await Promise.all([
             publicClient.readContract({
@@ -300,31 +216,44 @@ export default function BridgeTab() {
             }) as Promise<`0x${string}`>,
           ]);
 
-        usdc = routerUsdc;
-        tokenMessengerV2Addr = routerTokenMessengerV2;
-        destinationCallerBytes32 = routerDestCaller;
+        arcUsdc = routerUsdc;
         feeCollector = routerFeeCollector;
         feeAmount = routerServiceFee;
-      } else {
-        if (!source.usdc) throw new Error(`Missing ${source.key} USDC env var.`);
-        if (!source.tokenMessengerV2)
-          throw new Error(`Missing ${source.key} TOKEN_MESSENGER_V2 env var.`);
+        tokenMessengerV2Addr = routerTokenMessengerV2;
+        destinationCallerBytes32 = routerDestCaller;
 
-        usdc = source.usdc;
-        tokenMessengerV2Addr = source.tokenMessengerV2;
-        destinationCallerBytes32 = addressToBytes32(
-          "0x0000000000000000000000000000000000000000"
+        setStatus(
+          "Router config:\n" +
+            `USDC: ${routerUsdc}\n` +
+            `TokenMessengerV2: ${routerTokenMessengerV2}\n` +
+            `FeeCollector: ${routerFeeCollector}\n` +
+            `ServiceFee: ${Number(routerServiceFee) / 1e6} USDC`
         );
-        feeAmount = 0n;
+      } catch (readCfgErr: any) {
+        console.error("Failed to read Router config:", readCfgErr);
+        throw new Error(
+          `Failed to read Router on-chain config. ` +
+            `Details: ${readCfgErr?.shortMessage || readCfgErr?.message || "Unknown error"}`
+        );
       }
 
+      setStatus("Validating inputs...");
+      validateAmount(amountUsdc);
+      if (memo) validateMemo(memo);
+
       let amount: bigint, maxFee: bigint;
-      ({ amount, maxFee } = computeMaxFee(amountUsdc, dest.domain));
+      try {
+        ({ amount, maxFee } = computeMaxFee(amountUsdc, dest.domain));
+      } catch (feeErr: any) {
+        throw new Error(`Fee calculation error: ${feeErr.message}`);
+      }
 
       setStatus("Reading minFee from TokenMessengerV2...");
+      let minProtocolFee = 0n;
       try {
-        const minProtocolFee = (await publicClient.readContract({
-          address: tokenMessengerV2Addr,
+        const tokenMessenger = tokenMessengerV2Addr;
+        minProtocolFee = (await publicClient.readContract({
+          address: tokenMessenger,
           abi: TOKEN_MESSENGER_V2_FEE_ABI,
           functionName: "getMinFeeAmount",
           args: [amount],
@@ -335,34 +264,50 @@ export default function BridgeTab() {
           const maxFeeCap = amount - 1n;
           maxFee = bufferedMinFee > maxFeeCap ? maxFeeCap : bufferedMinFee;
         }
-      } catch (err) {
-        console.warn("Failed to read getMinFeeAmount:", err);
+      } catch (minFeeErr: any) {
+        console.warn("Failed to read getMinFeeAmount:", minFeeErr);
       }
 
       if (maxFee >= amount) {
         throw new Error(
-          `Invalid fee: maxFee (${Number(maxFee) / 1e6}) must be less than amount (${Number(amount) / 1e6}).`
+          `Invalid fee: maxFee (${Number(maxFee) / 1e6}) must be less than amount (${Number(amount) / 1e6}). ` +
+            `Please increase the amount.`
         );
       }
 
       setStatus("Checking USDC balance...");
-      const bal = (await publicClient.readContract({
-        address: usdc,
+      const bal = await publicClient.readContract({
+        address: arcUsdc,
         abi: ERC20_ABI,
         functionName: "balanceOf",
         args: [address],
-      })) as bigint;
+      });
 
       const totalNeed = amount + feeAmount;
       if (bal < totalNeed) {
         throw new Error(
-          `Insufficient USDC balance.\nRequired: ${(Number(totalNeed) / 1e6).toFixed(6)} USDC\nAvailable: ${(Number(bal) / 1e6).toFixed(6)} USDC`
+          `Insufficient USDC balance.\n` +
+            `Required: ${(Number(totalNeed) / 1e6).toFixed(6)} USDC\n` +
+            `Available: ${(Number(bal) / 1e6).toFixed(6)} USDC`
         );
+      }
+
+      let recipientAddr: `0x${string}`;
+      try {
+        recipientAddr = recipient.trim() ? validateRecipient(recipient.trim()) : address;
+      } catch (err: any) {
+        throw new Error(`Invalid recipient: ${err.message}`);
+      }
+
+      const finalHookData = buildHookDataWithMemo(HOOK_DATA, memo);
+
+      if (!tokenMessengerV2Addr || !destinationCallerBytes32) {
+        throw new Error("Failed to read tokenMessengerV2/destinationCaller from Router.");
       }
 
       setStatus("Checking TokenMessengerV2 allowance...");
       const tmAllowance = (await publicClient.readContract({
-        address: usdc,
+        address: arcUsdc,
         abi: ERC20_ABI,
         functionName: "allowance",
         args: [address, tokenMessengerV2Addr],
@@ -371,7 +316,7 @@ export default function BridgeTab() {
       if (tmAllowance < amount) {
         setStatus("Please approve USDC for TokenMessengerV2...");
         const approveTx = await walletClient.writeContract({
-          address: usdc,
+          address: arcUsdc,
           abi: ERC20_ABI,
           functionName: "approve",
           args: [tokenMessengerV2Addr, amount],
@@ -379,17 +324,14 @@ export default function BridgeTab() {
         await publicClient.waitForTransactionReceipt({ hash: approveTx });
       }
 
-      if (feeAmount > 0n) {
-        setStatus("Sending service fee transfer...");
-        const feeTx = await walletClient.writeContract({
-          address: usdc,
-          abi: ERC20_ABI,
-          functionName: "transfer",
-          args: [feeCollector, feeAmount],
-        });
-        setFeeTxHash(feeTx);
-        await publicClient.waitForTransactionReceipt({ hash: feeTx });
-      }
+      setStatus("Sending service fee transfer...");
+      const feeTx = await walletClient.writeContract({
+        address: arcUsdc,
+        abi: ERC20_ABI,
+        functionName: "transfer",
+        args: [feeCollector, feeAmount],
+      });
+      await publicClient.waitForTransactionReceipt({ hash: feeTx });
 
       setStatus("Sending burn+message transaction...");
       const burnTx = await walletClient.writeContract({
@@ -400,7 +342,7 @@ export default function BridgeTab() {
           amount,
           dest.domain,
           addressToBytes32(recipientAddr),
-          usdc,
+          arcUsdc,
           destinationCallerBytes32,
           maxFee,
           minFinality,
@@ -412,16 +354,29 @@ export default function BridgeTab() {
       setStatus("Waiting for burn+message confirmation...");
       const receipt = await publicClient.waitForTransactionReceipt({ hash: burnTx });
 
-      if (receipt.status !== "success") throw new Error("burn+message transaction reverted");
+      if (receipt.status === "success") {
+        setHistory((prev) => [
+          {
+            ts: Date.now(),
+            from: address,
+            to: recipientAddr,
+            txHash: burnTx,
+            memo: memo || undefined,
+          },
+          ...prev,
+        ]);
 
-      setHistory((prev) => [
-        { ts: Date.now(), from: address, to: recipientAddr, txHash: burnTx, memo: memo || undefined },
-        ...prev,
-      ]);
-
-      setStatus(
-        `Success!\n\nAmount: ${Number(amount) / 1e6} USDC\nFrom: ${source.name}\nTo: ${dest.name}\nRecipient: ${recipientAddr}\n\nWaiting for forwarding...`
-      );
+        setStatus(
+          `Success!\n\n` +
+            `Amount: ${Number(amount) / 1e6} USDC\n` +
+            `From: ARC Testnet\n` +
+            `To: ${dest.name}\n` +
+            `Recipient: ${recipientAddr}\n\n` +
+            `Waiting for forwarding...`
+        );
+      } else {
+        throw new Error("burn+message transaction reverted");
+      }
     } catch (err: any) {
       console.error("Bridge error:", err);
       setStatus(`Error: ${err?.message || err?.shortMessage || "Unknown error"}`);
@@ -430,179 +385,33 @@ export default function BridgeTab() {
     }
   }
 
-  const bridgeButtonDisabled =
-    loading ||
-    !isConnected ||
-    isWrongNetwork ||
-    !amountUsdc ||
-    parseFloat(amountUsdc) < 5 ||
-    (direction === "OTHER_TO_ARC" && enabledOtherChains.length === 0);
-
   return (
     <div className="w-full py-6">
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 items-stretch">
         {/* Left */}
         <div className="h-full rounded-2xl bg-white shadow-xl p-6 min-h-[70vh]">
           <div className="space-y-5">
-            {/* Direction */}
-            <div>
-              <label className="mb-2 block text-sm font-medium text-gray-700">
-                Bridge direction
-              </label>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  disabled={loading}
-                  onClick={() => setDirection("ARC_TO_OTHER")}
-                  className={[
-                    "flex-1 rounded-xl border px-4 py-3 text-sm font-semibold shadow-sm",
-                    direction === "ARC_TO_OTHER"
-                      ? "border-transparent bg-gradient-to-r from-[#ff7582] to-[#725a7a] text-white"
-                      : "border-gray-300 bg-white text-gray-900 hover:bg-gray-50",
-                  ].join(" ")}
-                >
-                  ARC → Other
-                </button>
-                <button
-                  type="button"
-                  disabled={loading}
-                  onClick={() => setDirection("OTHER_TO_ARC")}
-                  className={[
-                    "flex-1 rounded-xl border px-4 py-3 text-sm font-semibold shadow-sm",
-                    direction === "OTHER_TO_ARC"
-                      ? "border-transparent bg-gradient-to-r from-[#ff7582] to-[#725a7a] text-white"
-                      : "border-gray-300 bg-white text-gray-900 hover:bg-gray-50",
-                    enabledOtherChains.length === 0 ? "opacity-50" : "",
-                  ].join(" ")}
-                >
-                  Other → ARC
-                </button>
-              </div>
-              {enabledOtherChains.length === 0 && (
-                <div className="mt-1 text-xs text-gray-500">
-                  Other → ARC will be enabled once at least one source chain is configured via Vercel Env Vars.
-                </div>
-              )}
-              {enabledOtherChains.length > 0 && (
-                <div className="mt-1 text-[11px] text-gray-400">
-                  Enabled destination chains: {enabledOtherChainKeys}
-                </div>
-              )}
-              {enabledOtherChains.length > 0 && (
-                <div className="mt-1 text-[11px] text-gray-400">
-                  Enabled destination chains: {enabledOtherChainKeys}
-                </div>
-              )}
-            </div>
-
-            {/* Source Chain (OTHER -> ARC) */}
-            {direction === "OTHER_TO_ARC" && (
-              <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700">
-                  Source chain
-                </label>
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => setSourceOpen((v) => !v)}
-                    disabled={loading}
-                    className="flex w-full items-center justify-between gap-3 rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 shadow-sm transition-all focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-200 disabled:cursor-not-allowed disabled:bg-gray-100"
-                  >
-                    <div className="flex items-center gap-3">
-                      {source.iconPath && (
-                        <img
-                          src={source.iconPath}
-                          alt={source.name}
-                          className="h-6 w-6 rounded-md"
-                        />
-                      )}
-                      <span className="font-medium">{source.name}</span>
-                    </div>
-                    <span className="text-gray-400">▾</span>
-                  </button>
-
-                  {sourceOpen && hasOtherChains && (
-                    <div className="absolute z-10 mt-2 w-full overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
-                      <div className="max-h-72 overflow-auto py-1">
-                        {enabledOtherChains.map((c) => (
-                          <button
-                            key={c.key}
-                            type="button"
-                            onClick={() => {
-                              setSourceKey(c.key);
-                              setSourceOpen(false);
-                            }}
-                            className={[
-                              "flex w-full items-center gap-3 px-4 py-2 text-left text-sm hover:bg-gray-50",
-                              c.key === sourceKey ? "bg-gray-50" : "",
-                            ].join(" ")}
-                          >
-                            {c.iconPath && (
-                              <img
-                                src={c.iconPath}
-                                alt={c.name}
-                                className="h-6 w-6 rounded-md"
-                              />
-                            )}
-                            <span className="font-medium text-gray-900">
-                              {getDestLabel(c)}
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-                {!hasOtherChains && (
-                  <div className="mt-1 text-xs text-gray-500">
-                    No source chains enabled. Double-check your Vercel Env Vars names (e.g.{" "}
-                    <code className="rounded bg-white/70 px-1">
-                      NEXT_PUBLIC_BASE_SEPOLIA_CHAIN_ID
-                    </code>
-                    ).
-                  </div>
-                )}
-
-                <button
-                  type="button"
-                  disabled={loading || !isConnected}
-                  onClick={() => switchToChain(source)}
-                  className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-900 shadow-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:bg-gray-100"
-                >
-                  Switch wallet to {source.name}
-                </button>
-              </div>
-            )}
-
             {/* Destination Chain */}
             <div>
-              <label className="mb-2 block text-sm font-medium text-gray-700">
-                Destination chain
-              </label>
+              <label className="mb-2 block text-sm font-medium text-gray-700">Destination chain</label>
               <div className="relative">
                 <button
                   type="button"
                   onClick={() => setDestOpen((v) => !v)}
-                  disabled={loading || direction === "OTHER_TO_ARC" || !hasOtherChains}
+                  disabled={loading}
                   className="flex w-full items-center justify-between gap-3 rounded-xl border border-gray-300 bg-white px-4 py-3 text-gray-900 shadow-sm transition-all focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-200 disabled:cursor-not-allowed disabled:bg-gray-100"
                 >
                   <div className="flex items-center gap-3">
-                    {dest.iconPath && (
-                      <img
-                        src={dest.iconPath}
-                        alt={dest.name}
-                        className="h-6 w-6 rounded-md"
-                      />
-                    )}
+                    <img src={dest.iconPath} alt={dest.name} className="h-6 w-6 rounded-md" />
                     <span className="font-medium">{dest.name}</span>
                   </div>
                   <span className="text-gray-400">▾</span>
                 </button>
 
-                {destOpen && direction === "ARC_TO_OTHER" && hasOtherChains && (
+                {destOpen && (
                   <div className="absolute z-10 mt-2 w-full overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
                     <div className="max-h-72 overflow-auto py-1">
-                      {enabledOtherChains.map((d) => (
+                      {DESTS.map((d) => (
                         <button
                           key={d.key}
                           type="button"
@@ -615,13 +424,7 @@ export default function BridgeTab() {
                             d.key === destKey ? "bg-gray-50" : "",
                           ].join(" ")}
                         >
-                          {d.iconPath && (
-                            <img
-                              src={d.iconPath}
-                              alt={d.name}
-                              className="h-6 w-6 rounded-md"
-                            />
-                          )}
+                          <img src={d.iconPath} alt={d.name} className="h-6 w-6 rounded-md" />
                           <span className="font-medium text-gray-900">{d.name}</span>
                         </button>
                       ))}
@@ -629,19 +432,11 @@ export default function BridgeTab() {
                   </div>
                 )}
               </div>
-              {direction === "ARC_TO_OTHER" && !hasOtherChains && (
-                <div className="mt-1 text-xs text-gray-500">
-                  No destination chains enabled. Uncomment at least one chain config in{" "}
-                  <code className="rounded bg-white/70 px-1">.env.local</code>.
-                </div>
-              )}
             </div>
 
             {/* Recipient */}
             <div>
-              <label className="mb-2 block text-sm font-medium text-gray-700">
-                Recipient address
-              </label>
+              <label className="mb-2 block text-sm font-medium text-gray-700">Recipient address</label>
               <input
                 type="text"
                 value={recipient}
@@ -654,9 +449,7 @@ export default function BridgeTab() {
 
             {/* Memo */}
             <div>
-              <label className="mb-2 block text-sm font-medium text-gray-700">
-                Message
-              </label>
+              <label className="mb-2 block text-sm font-medium text-gray-700">Message</label>
               <input
                 type="text"
                 value={memo}
@@ -701,13 +494,13 @@ export default function BridgeTab() {
                 <div className="flex justify-between">
                   <span className="text-gray-600">Service fee</span>
                   <span className="flex items-center gap-2 font-semibold text-gray-900">
-                    {direction === "ARC_TO_OTHER" ? FEE_USDC : "0"}
+                    {FEE_USDC}
                     <UsdcIcon className="h-4 w-4" />
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">From</span>
-                  <span className="font-semibold text-gray-900">{source.name}</span>
+                  <span className="font-semibold text-gray-900">ARC Testnet</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">To</span>
@@ -718,21 +511,15 @@ export default function BridgeTab() {
                   <span className="font-semibold text-gray-900">~5s - 2min</span>
                 </div>
               </div>
-              {direction === "ARC_TO_OTHER" && !hasOtherChains && (
-                <div className="mt-1 text-xs text-gray-500">
-                  No destination chains enabled. Uncomment at least one chain config in{" "}
-                  <code className="rounded bg-white/70 px-1">.env.local</code>.
-                </div>
-              )}
             </div>
 
             {/* Bridge Button */}
             <button
               onClick={onBridge}
-              disabled={bridgeButtonDisabled}
+              disabled={loading || isWrongNetwork || !amountUsdc || parseFloat(amountUsdc) < 5}
               className={[
                 "w-full rounded-xl px-6 py-4 font-semibold text-white shadow-lg transition-all",
-                bridgeButtonDisabled
+                loading || isWrongNetwork || !amountUsdc || parseFloat(amountUsdc) < 5
                   ? "cursor-not-allowed bg-gray-300"
                   : "bg-gradient-to-r from-[#ff7582] to-[#725a7a] hover:from-[#ff5f70] hover:to-[#664f6e] active:scale-[0.98]",
               ].join(" ")}
@@ -744,12 +531,8 @@ export default function BridgeTab() {
                 </div>
               ) : isWrongNetwork ? (
                 "Wrong network"
-              ) : !isConnected ? (
-                "Connect wallet"
-              ) : direction === "ARC_TO_OTHER" ? (
-                "Send USDC"
               ) : (
-                "Bridge to ARC"
+                "Send USDC"
               )}
             </button>
 
@@ -761,8 +544,8 @@ export default function BridgeTab() {
                   status.toLowerCase().includes("success")
                     ? "border-green-200 bg-green-50 text-green-800"
                     : status.toLowerCase().includes("error")
-                      ? "border-red-200 bg-red-50 text-red-800"
-                      : "border-blue-200 bg-blue-50 text-blue-800",
+                    ? "border-red-200 bg-red-50 text-red-800"
+                    : "border-blue-200 bg-blue-50 text-blue-800",
                 ].join(" ")}
               >
                 <div className="flex items-start gap-3">
@@ -773,26 +556,13 @@ export default function BridgeTab() {
                     {status}
                     {txHash && (
                       <a
-                        href={`${source.explorerUrl || "https://testnet.arcscan.app"}/tx/${txHash}`}
+                        href={`https://testnet.arcscan.app/tx/${txHash}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-green-700 hover:text-green-900 underline"
                       >
                         View transaction →
                       </a>
-                    )}
-                    {feeTxHash && (
-                      <div className="mt-2 text-xs text-gray-700">
-                        Fee TX:{" "}
-                        <a
-                          href={`${source.explorerUrl || "https://testnet.arcscan.app"}/tx/${feeTxHash}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="font-semibold underline"
-                        >
-                          view
-                        </a>
-                      </div>
                     )}
                   </div>
                 </div>
@@ -834,7 +604,7 @@ export default function BridgeTab() {
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="text-xs text-gray-600">{new Date(h.ts).toLocaleString()}</div>
                     <a
-                      href={`${source.explorerUrl || "https://testnet.arcscan.app"}/tx/${h.txHash}`}
+                      href={`https://testnet.arcscan.app/tx/${h.txHash}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-xs font-semibold text-[#725a7a] underline"

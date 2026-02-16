@@ -93,5 +93,5 @@ export function Providers({ children }: { children: React.ReactNode }) {
         </RainbowKitProvider>
       </QueryClientProvider>
     </WagmiProvider>
-  );;
+  );
 }
