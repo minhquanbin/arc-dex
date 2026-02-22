@@ -63,6 +63,7 @@ const INVOICE_REGISTRY_ABI = [
     inputs: [{ name: "invoiceId", type: "bytes32" }],
     outputs: [
       { name: "vendor", type: "address" },
+      { name: "beneficiary", type: "address" }, // ← added: contract returns this at index 1
       { name: "payer", type: "address" },
       { name: "token", type: "address" },
       { name: "amount", type: "uint256" },
@@ -91,6 +92,7 @@ const INVOICE_REGISTRY_ABI = [
 type InvoiceRow = {
   invoiceId: `0x${string}`;
   vendor: Address;
+  beneficiary: Address;
   payer: Address;
   token: Address;
   amount: bigint;
@@ -117,7 +119,6 @@ function statusIcon(status: number): { src: string; alt: string } | null {
 }
 
 function parseLocalDateToUnixSeconds(dateStr: string): number {
-  // Expects YYYY-MM-DD in user's local timezone
   if (!dateStr) return 0;
   const [yyyy, mm, dd] = dateStr.split("-").map(Number);
   if (!yyyy || !mm || !dd) return 0;
@@ -181,7 +182,6 @@ export default function InvoicesTab() {
   const [knownIds, setKnownIds] = useState<string[]>([]);
   const [items, setItems] = useState<InvoiceRow[]>([]);
 
-  // Avoid showing raw RPC errors in UI (still log to console for debugging)
   const [hasRpcWarning, setHasRpcWarning] = useState(false);
 
   // Lookup by id
@@ -248,7 +248,7 @@ export default function InvoicesTab() {
 
     try {
       const latest = await publicClient.getBlockNumber();
-      const window = 200_000n; // scan recent blocks only to avoid eth_getLogs limits/timeouts
+      const window = 200_000n;
       const fromBlock = latest > window ? latest - window : 0n;
 
       const logs = await publicClient.getLogs({
@@ -265,12 +265,30 @@ export default function InvoicesTab() {
       }
       saveKnownIds([...knownIds, ...ids]);
     } catch (e: any) {
-      // Hide the red error panel on UI; just mark a warning + log for devs.
       setHasRpcWarning(true);
       console.warn("[InvoicesTab] refreshFromChain getLogs failed:", e);
     } finally {
       setStatus("");
     }
+  }
+
+  // ─── Helper: parse contract tuple into InvoiceRow ───────────────────────────
+  // Contract struct order: vendor(0), beneficiary(1), payer(2), token(3),
+  //   amount(4), dueDate(5), status(6), createdAt(7), paidAt(8), metadataHash(9)
+  function parseRow(id: string, row: readonly [Address, Address, Address, Address, bigint, bigint, number, bigint, bigint, `0x${string}`]): InvoiceRow {
+    return {
+      invoiceId: id as `0x${string}`,
+      vendor: row[0],
+      beneficiary: row[1],
+      payer: row[2],
+      token: row[3],
+      amount: row[4],
+      dueDate: row[5],
+      status: Number(row[6]),
+      createdAt: row[7],
+      paidAt: row[8],
+      metadataHash: row[9],
+    };
   }
 
   async function loadDetails(ids: string[]) {
@@ -284,30 +302,9 @@ export default function InvoicesTab() {
           abi: INVOICE_REGISTRY_ABI,
           functionName: "invoices",
           args: [id as `0x${string}`],
-        })) as unknown as readonly [
-          Address,
-          Address,
-          Address,
-          bigint,
-          bigint,
-          number,
-          bigint,
-          bigint,
-          `0x${string}`,
-        ];
+        })) as unknown as readonly [Address, Address, Address, Address, bigint, bigint, number, bigint, bigint, `0x${string}`];
 
-        next.push({
-          invoiceId: id as `0x${string}`,
-          vendor: row[0],
-          payer: row[1],
-          token: row[2],
-          amount: row[3],
-          dueDate: row[4],
-          status: Number(row[5]),
-          createdAt: row[6],
-          paidAt: row[7],
-          metadataHash: row[8],
-        });
+        next.push(parseRow(id, row));
       } catch {
         // ignore invalid ids
       }
@@ -333,14 +330,12 @@ export default function InvoicesTab() {
       setStatus("");
       if (!isConnected || !address) throw new Error("Connect wallet first");
       if (!isConfigured) throw new Error("InvoiceRegistry not configured (NEXT_PUBLIC_ARC_INVOICE_REGISTRY).");
-
       if (!payer || !payer.startsWith("0x") || payer.length !== 42) throw new Error("Payer must be a valid 0x address.");
       if (!amount || Number(amount) <= 0) throw new Error("Amount must be > 0");
 
       const payerAddr = payer as Address;
       const dueUnix = parseLocalDateToUnixSeconds(dueDate);
       const amt = parseUnits(amount, 6);
-
       const invoiceId = buildInvoiceId(address as Address, payerAddr, amount, dueDate, description);
       const metadataHash = buildMetadataHash(description);
 
@@ -366,14 +361,12 @@ export default function InvoicesTab() {
       if (!isConnected || !address) throw new Error("Connect wallet first");
       if (!isConfigured) throw new Error("InvoiceRegistry not configured");
 
-      const approveAmount = required;
-      setStatus(`Approving ${formatUSDC(approveAmount)} USDC allowance...`);
-
+      setStatus(`Approving ${formatUSDC(required)} USDC allowance...`);
       await writeContract({
         address: USDC_ADDRESS,
         abi: ERC20_ABI,
         functionName: "approve",
-        args: [INVOICE_REGISTRY_ADDRESS, approveAmount],
+        args: [INVOICE_REGISTRY_ADDRESS, required],
       });
     } catch (e: any) {
       setLastError(e?.message || "Approve failed");
@@ -415,38 +408,61 @@ export default function InvoicesTab() {
         abi: INVOICE_REGISTRY_ABI,
         functionName: "invoices",
         args: [id as `0x${string}`],
-      })) as unknown as readonly [
-        Address,
-        Address,
-        Address,
-        bigint,
-        bigint,
-        number,
-        bigint,
-        bigint,
-        `0x${string}`,
-      ];
+      })) as unknown as readonly [Address, Address, Address, Address, bigint, bigint, number, bigint, bigint, `0x${string}`];
 
-      setLookupRow({
-        invoiceId: id as `0x${string}`,
-        vendor: row[0],
-        payer: row[1],
-        token: row[2],
-        amount: row[3],
-        dueDate: row[4],
-        status: Number(row[5]),
-        createdAt: row[6],
-        paidAt: row[7],
-        metadataHash: row[8],
-      });
+      setLookupRow(parseRow(id, row));
     } catch (e: any) {
       setLookupError(e?.message || "Lookup failed");
     }
   }
 
-  const mine = items.filter((x) => x.vendor.toLowerCase() === myLower || x.payer.toLowerCase() === myLower);
+  const mine = items.filter(
+    (x) =>
+      x.vendor.toLowerCase() === myLower ||
+      x.beneficiary.toLowerCase() === myLower ||
+      x.payer.toLowerCase() === myLower
+  );
   const payableByMe = items.filter((x) => x.payer.toLowerCase() === myLower && x.status === 1);
   const createdByMe = mine.filter((x) => x.vendor.toLowerCase() === myLower);
+
+  // ─── Shared invoice card fields ───────────────────────────────────────────
+  function InvoiceFields({ inv }: { inv: InvoiceRow }) {
+    return (
+      <div className="mt-3 grid md:grid-cols-2 gap-3 text-sm">
+        <div>
+          <div className="text-xs text-gray-500">Vendor</div>
+          <div className="font-semibold">{formatAddress(inv.vendor)}</div>
+        </div>
+        <div>
+          <div className="text-xs text-gray-500">Beneficiary (receives payment)</div>
+          <div className="font-semibold">{formatAddress(inv.beneficiary)}</div>
+        </div>
+        <div>
+          <div className="text-xs text-gray-500">Payer</div>
+          <div className="font-semibold">{formatAddress(inv.payer)}</div>
+        </div>
+        <div>
+          <div className="text-xs text-gray-500">Amount</div>
+          <div className="font-semibold">{formatUSDC(inv.amount)} USDC</div>
+        </div>
+        <div>
+          <div className="text-xs text-gray-500">Due</div>
+          <div className="font-semibold">{formatDue(inv.dueDate)}</div>
+        </div>
+      </div>
+    );
+  }
+
+  function StatusBadge({ inv }: { inv: InvoiceRow }) {
+    const icon = statusIcon(inv.status);
+    return icon ? (
+      <img src={icon.src} alt={icon.alt} className="h-7 w-7" title={statusLabel(inv.status)} />
+    ) : (
+      <div className="text-xs font-semibold px-2 py-1 rounded-full border border-gray-200 bg-gray-50">
+        {statusLabel(inv.status)}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -493,7 +509,6 @@ export default function InvoicesTab() {
               className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm"
             />
           </div>
-
           <div className="space-y-1">
             <label className="text-xs font-semibold text-gray-700">Amount (USDC)</label>
             <input
@@ -503,7 +518,6 @@ export default function InvoicesTab() {
               className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm"
             />
           </div>
-
           <div className="space-y-1">
             <label className="text-xs font-semibold text-gray-700">Due date</label>
             <input
@@ -513,7 +527,6 @@ export default function InvoicesTab() {
               className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm"
             />
           </div>
-
           <div className="space-y-1">
             <label className="text-xs font-semibold text-gray-700">Description (hashed)</label>
             <input
@@ -540,7 +553,7 @@ export default function InvoicesTab() {
         )}
       </div>
 
-      {/* Payable */}
+      {/* Payable by me */}
       <div className="arc-card-light p-5 space-y-4 border-2 border-gray-200 shadow-sm">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-bold text-gray-900">Payable by me</h2>
@@ -564,29 +577,10 @@ export default function InvoicesTab() {
                       <div className="text-xs text-gray-500">Invoice ID</div>
                       <div className="font-mono text-xs break-all">{inv.invoiceId}</div>
                     </div>
-                    <div className="text-xs font-semibold px-2 py-1 rounded-full border border-gray-200 bg-gray-50">
-                      {statusLabel(inv.status)}
-                    </div>
+                    <StatusBadge inv={inv} />
                   </div>
 
-                  <div className="mt-3 grid md:grid-cols-2 gap-3 text-sm">
-                    <div>
-                      <div className="text-xs text-gray-500">Vendor</div>
-                      <div className="font-semibold">{formatAddress(inv.vendor)}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-gray-500">Payer</div>
-                      <div className="font-semibold">{formatAddress(inv.payer)}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-gray-500">Amount</div>
-                      <div className="font-semibold">{formatUSDC(inv.amount)} USDC</div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-gray-500">Due</div>
-                      <div className="font-semibold">{formatDue(inv.dueDate)}</div>
-                    </div>
-                  </div>
+                  <InvoiceFields inv={inv} />
 
                   <div className="mt-3 flex items-center justify-between gap-3">
                     <div className="text-[11px] text-gray-500">
@@ -658,36 +652,10 @@ export default function InvoicesTab() {
                 <div className="text-xs text-gray-500">Invoice ID</div>
                 <div className="font-mono text-xs break-all">{lookupRow.invoiceId}</div>
               </div>
-              {(() => {
-                const icon = statusIcon(lookupRow.status);
-                return icon ? (
-                  <img src={icon.src} alt={icon.alt} className="h-7 w-7" title={statusLabel(lookupRow.status)} />
-                ) : (
-                  <div className="text-xs font-semibold px-2 py-1 rounded-full border border-gray-200 bg-gray-50">
-                    {statusLabel(lookupRow.status)}
-                  </div>
-                );
-              })()}
+              <StatusBadge inv={lookupRow} />
             </div>
 
-            <div className="mt-3 grid md:grid-cols-2 gap-3 text-sm">
-              <div>
-                <div className="text-xs text-gray-500">Vendor</div>
-                <div className="font-semibold">{formatAddress(lookupRow.vendor)}</div>
-              </div>
-              <div>
-                <div className="text-xs text-gray-500">Payer</div>
-                <div className="font-semibold">{formatAddress(lookupRow.payer)}</div>
-              </div>
-              <div>
-                <div className="text-xs text-gray-500">Amount</div>
-                <div className="font-semibold">{formatUSDC(lookupRow.amount)} USDC</div>
-              </div>
-              <div>
-                <div className="text-xs text-gray-500">Due</div>
-                <div className="font-semibold">{formatDue(lookupRow.dueDate)}</div>
-              </div>
-            </div>
+            <InvoiceFields inv={lookupRow} />
 
             <div className="mt-3 flex items-center justify-between gap-3">
               <div className="text-[11px] text-gray-500">
@@ -724,7 +692,7 @@ export default function InvoicesTab() {
         )}
       </div>
 
-      {/* Created */}
+      {/* Created by me */}
       <div className="arc-card-light p-5 space-y-4 border-2 border-gray-200 shadow-sm">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-bold text-gray-900">Created by me</h2>
@@ -742,36 +710,10 @@ export default function InvoicesTab() {
                     <div className="text-xs text-gray-500">Invoice ID</div>
                     <div className="font-mono text-xs break-all">{inv.invoiceId}</div>
                   </div>
-                  {(() => {
-                    const icon = statusIcon(inv.status);
-                    return icon ? (
-                      <img src={icon.src} alt={icon.alt} className="h-7 w-7" title={statusLabel(inv.status)} />
-                    ) : (
-                      <div className="text-xs font-semibold px-2 py-1 rounded-full border border-gray-200 bg-gray-50">
-                        {statusLabel(inv.status)}
-                      </div>
-                    );
-                  })()}
+                  <StatusBadge inv={inv} />
                 </div>
 
-                <div className="mt-3 grid md:grid-cols-2 gap-3 text-sm">
-                  <div>
-                    <div className="text-xs text-gray-500">Vendor</div>
-                    <div className="font-semibold">{formatAddress(inv.vendor)}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-gray-500">Payer</div>
-                    <div className="font-semibold">{formatAddress(inv.payer)}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-gray-500">Amount</div>
-                    <div className="font-semibold">{formatUSDC(inv.amount)} USDC</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-gray-500">Due</div>
-                    <div className="font-semibold">{formatDue(inv.dueDate)}</div>
-                  </div>
-                </div>
+                <InvoiceFields inv={inv} />
 
                 <div className="mt-3 text-[11px] text-gray-500">
                   Token: <span className="font-mono">{formatAddress(inv.token)}</span>
@@ -782,6 +724,10 @@ export default function InvoicesTab() {
           </div>
         )}
       </div>
+
+      {lastError && (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{lastError}</div>
+      )}
 
       {(status || isConfirmed) && (
         <div className="rounded-xl border border-gray-200 bg-white p-4 text-sm">

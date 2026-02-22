@@ -1,15 +1,15 @@
 "use client";
 
-import { useId, useState, useEffect } from "react";
+import { useId, useState } from "react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useAccount } from "wagmi";
 import BridgeTab from "@/components/tabs/BridgeTab";
 import IssuanceTab from "@/components/tabs/IssuanceTab";
 import PaymentsTab from "@/components/tabs/PaymentsTab";
 import InvoicesTab from "@/components/tabs/InvoicesTab";
+import InvoiceMarketplaceTab from "@/components/tabs/InvoiceMarketplaceTab";
 
-type TabType = "swap" | "bridge" | "invoices" | "payment" | "issuance";
-
+type TabType = "swap" | "bridge" | "invoices" | "invoice-market" | "payment" | "issuance";
 
 function ArcLogoIcon({ className }: { className?: string }) {
   const gid0 = useId();
@@ -61,21 +61,21 @@ function UsdcIcon({ className }: { className?: string }) {
       <path
         fill="#0B53BF"
         d="M60 120c33.137 0 60-26.863 60-60S93.137 0 60 0 0 26.863 0 60s26.863 60 60 60"
-      ></path>
+      />
       <path
         fill="#fff"
         d="M70.8 16.313v7.725C86.211 28.688 97.498 43.013 97.498 60s-11.287 31.313-26.7 35.963v7.725C90.45 98.888 105 81.15 105 60s-14.55-38.887-34.2-43.687M22.499 60c0-16.987 11.287-31.312 26.7-35.962v-7.725c-19.65 4.8-34.2 22.537-34.2 43.687s14.55 38.888 34.2 43.688v-7.725C33.786 91.35 22.499 76.988 22.499 60"
-      ></path>
+      />
       <path
         fill="#fff"
         d="M76.124 68.363c0-15.338-24.037-9.038-24.037-17.513 0-3.037 2.437-4.987 7.087-4.987 5.55 0 7.463 2.7 8.063 6.337h7.65c-.683-6.826-4.6-11.137-11.138-12.42v-6.03h-7.5v5.814c-7.161.912-11.662 5.083-11.662 11.286 0 15.413 24.075 9.638 24.075 17.963 0 3.15-3.038 5.25-8.176 5.25-6.712 0-8.924-2.963-9.75-7.05h-7.462c.483 7.477 5.094 12.157 12.975 13.324v5.913h7.5v-5.834c7.692-.994 12.375-5.468 12.375-12.053"
-      ></path>
+      />
     </svg>
   );
 }
 
 export default function Home() {
-  const { address, isConnected, chain } = useAccount();
+  const { isConnected, chain } = useAccount();
   const [tab, setTab] = useState<TabType>("bridge");
 
   const expectedChainId = Number(process.env.NEXT_PUBLIC_ARC_CHAIN_ID || 5042002);
@@ -119,6 +119,16 @@ export default function Home() {
     }
   }
 
+  const tabs: { id: TabType; label: string; enabled: boolean }[] = [
+    { id: "bridge", label: "Bridge", enabled: true },
+    { id: "issuance", label: "Issuance", enabled: true },
+    { id: "payment", label: "Payment", enabled: true },
+    { id: "invoices", label: "Invoices", enabled: true },
+    { id: "invoice-market", label: "Marketplace", enabled: true },
+  ];
+
+  const isFullWidth = tab === "issuance" || tab === "bridge";
+
   return (
     <main className="arc-app min-h-screen">
       <div className="container mx-auto max-w-6xl px-4 py-6">
@@ -158,7 +168,6 @@ export default function Home() {
                   >
                     {chain?.name}
                   </button>
-
                   <button
                     onClick={openAccountModal}
                     type="button"
@@ -166,9 +175,7 @@ export default function Home() {
                   >
                     <span className="flex items-center gap-1">
                       <span>
-                        {(account?.displayBalance || "")
-                          .replace(/\s*USDC\b/gi, "")
-                          .trim()}
+                        {(account?.displayBalance || "").replace(/\s*USDC\b/gi, "").trim()}
                       </span>
                       <UsdcIcon className="h-4 w-4" />
                     </span>
@@ -203,22 +210,13 @@ export default function Home() {
         )}
 
         {/* Main Card */}
-        <div
-          className={
-            tab === "issuance" || tab === "bridge"
-              ? "rounded-2xl bg-transparent shadow-none"
-              : "overflow-hidden rounded-2xl bg-white shadow-xl"
-          }
-        >
+        <div className={isFullWidth ? "rounded-2xl bg-transparent shadow-none" : "overflow-hidden rounded-2xl bg-white shadow-xl"}>
           {/* Tabs */}
-          <div className="rounded-2xl bg-white/80 backdrop-blur shadow-xl p-2">            <div className="flex gap-2">
-              {(["bridge", "issuance", "payment", "invoices"] as TabType[]).map((t) => {
-                const enabled = t === "bridge" || t === "issuance" || t === "payment" || t === "invoices";
-                const active = tab === t;;
-
-
+          <div className="rounded-2xl bg-white/80 backdrop-blur shadow-xl p-2">
+            <div className="flex gap-2">
+              {tabs.map(({ id, label, enabled }) => {
+                const active = tab === id;
                 const base = "flex-1 px-6 py-4 text-lg font-semibold transition-all rounded-xl";
-
                 const stateClass = active
                   ? "bg-gradient-to-r from-[#ff7582] to-[#725a7a] text-white shadow"
                   : enabled
@@ -227,12 +225,12 @@ export default function Home() {
 
                 return (
                   <button
-                    key={t}
-                    onClick={() => setTab(t)}
+                    key={id}
+                    onClick={() => setTab(id)}
                     disabled={!enabled}
                     className={[base, stateClass].join(" ")}
                   >
-                    {t.charAt(0).toUpperCase() + t.slice(1)}
+                    {label}
                     {!enabled && <span className="ml-2 text-xs">(Soon)</span>}
                   </button>
                 );
@@ -241,24 +239,17 @@ export default function Home() {
           </div>
 
           {/* Content */}
-          <div className={tab === "issuance" || tab === "bridge" ? "pt-6" : "p-5"}>
+          <div className={isFullWidth ? "pt-6" : "p-5"}>
             {isConnected ? (
               <>
                 {tab === "bridge" && <BridgeTab />}
                 {tab === "issuance" && <IssuanceTab />}
                 {tab === "payment" && <PaymentsTab />}
                 {tab === "invoices" && <InvoicesTab />}
-                {tab !== "bridge" && tab !== "issuance" && tab !== "payment" && tab !== "invoices" && (
-                  <div className="py-12 text-center">
-
-                    <div className="mb-4 text-4xl">🚧</div>
-                    <p className="text-gray-600">This feature is coming soon!</p>
-                  </div>
-                )}
+                {tab === "invoice-market" && <InvoiceMarketplaceTab />}
               </>
             ) : (
               <div className="py-12 text-center">
-                
                 <p className="text-gray-600">Connect your wallet to start</p>
               </div>
             )}
